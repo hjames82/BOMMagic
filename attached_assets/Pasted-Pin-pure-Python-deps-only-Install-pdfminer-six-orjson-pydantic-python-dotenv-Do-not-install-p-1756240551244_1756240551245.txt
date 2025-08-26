@@ -1,0 +1,91 @@
+Pin pure-Python deps only
+
+“Install: pdfminer.six, orjson, pydantic, python-dotenv. Do not install pandas, numpy, pillow, opencv yet.”
+
+OCR wrapper using CLI
+
+“Create services/ocr_cli.py with a function ensure_text_layer(src_pdf, out_pdf) that:
+
+Checks if text exists using pdftotext -q src_pdf - and length>500.
+
+If not, runs ocrmypdf --jobs 2 --optimize 1 --skip-text src_pdf out_pdf.
+
+If yes, copies src_pdf to out_pdf unchanged.
+
+Return path to out_pdf. Log elapsed time and exit codes.”
+
+Layout extraction via Poppler XML
+
+“Create services/layout_xml.py with a function extract_words(pdf_path, page_index) that:
+
+Runs pdftohtml -xml -hidden -f {page} -l {page} -stdout pdf_path.
+
+Parses the XML to a list of words with bbox: [{'text','x','y','w','h'}] in page coordinates.”
+
+BOM detector (Goal #1)
+
+“Create services/bom_detect.py with detect_bom_regions(pdf_path):
+
+For each page:
+
+Use extract_words to build lines by y-clustering.
+
+Look for header lines containing at least 2 of: Item, Part, P/N, Part No, Qty, Quantity, Description, Unit, UOM, Price.
+
+From that header line, infer candidate column x-bands by gaps between words.
+
+Score a region below the header using:
+
+header_score = fraction of header synonyms matched.
+
+col_count_score = columns between 3 and 9.
+
+qty_numeric_score = numeric density in the presumed Qty column.
+
+confidence = 0.4*header + 0.3*col_count + 0.3*qty_numeric.
+
+Emit up to 3 candidates per page: {page, bbox[x0,y0,x1,y1], headers[], confidence} with confidence ≥ 0.70.
+
+Return all candidates sorted by confidence desc.”
+
+Raster for review overlays
+
+“Create services/page_image.py with render_page_png(pdf_path, page_index) that runs pdftoppm -f {p} -l {p} -png -singlefile -scale-to 2000 and returns the PNG path for UI overlays.”
+
+API endpoints for analysis
+
+“Add POST /v1/analyze:
+
+Accept PDF upload, store it privately.
+
+Call ensure_text_layer.
+
+Run detect_bom_regions.
+
+Persist results in SQLite: documents, detections (page, bbox, headers, confidence).
+
+Return JSON {document_id, detections, timings}.
+
+Add GET /v1/documents/<id> to fetch metadata + last detections.”
+
+Minimal review UI
+
+“Add /review/<document_id>:
+
+Show page thumbnail from render_page_png.
+
+Draw detection bboxes as overlays.
+
+Show headers and confidence.
+
+Buttons: ‘Mark Correct’ or ‘Not a BOM’ per candidate.
+
+Persist the decision and the chosen bbox.”
+
+Logging + health
+
+“Add structured logging with document_id, page, step, elapsed_ms. Add /v1/health returning {ok:true, versions:{tesseract, ocrmypdf}} by shelling tesseract --version and ocrmypdf --version.”
+
+Smoke test task
+
+“Create a tests/smoke/README.md describing how to drop 1 scanned PDF and run a script scripts/smoke_analyze.sh <file.pdf> that POSTs to /v1/analyze and prints detections. Do not commit sample PDFs.”

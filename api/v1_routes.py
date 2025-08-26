@@ -3,7 +3,7 @@ import uuid
 import shutil
 from datetime import datetime
 from pathlib import Path
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from flask_login import current_user
 from werkzeug.utils import secure_filename
 from redis import Redis
@@ -11,7 +11,13 @@ from rq import Queue
 
 from app import app, db
 from replit_auth import require_login
-from models import Job, JobStatus, User
+from models import Job, JobStatus, User, Document, Detection
+from services.ocr_cli import ensure_text_layer
+from services.bom_detect import detect_bom_regions
+from services.page_image import render_page_png
+import subprocess
+import json
+import time
 
 # Create blueprint for v1 API
 v1_api = Blueprint('v1_api', __name__, url_prefix='/v1')
@@ -292,6 +298,174 @@ def export_job_results(job_id, format):
             'error': 'Failed to generate export',
             'details': str(e) if app.debug else None
         }), 500
+
+
+@v1_api.route('/analyze', methods=['POST'])
+@require_login
+def analyze_document():
+    """
+    Analyze a PDF document for BOM regions.
+    """
+    ensure_storage_dirs()
+    
+    # Validate file presence
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if not file or file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file extension
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext != '.pdf':
+        return jsonify({'error': 'Only PDF files are supported for analysis'}), 400
+    
+    # Check file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        return jsonify({
+            'error': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.1f}MB'
+        }), 413
+    
+    try:
+        # Generate document ID
+        document_id = str(uuid.uuid4())
+        safe_filename = secure_filename(file.filename)
+        
+        # Save file
+        orig_path = f"{STORAGE_BASE}/originals/{document_id}_{safe_filename}"
+        file.save(orig_path)
+        
+        # Time the operations
+        timings = {}
+        
+        # Ensure text layer
+        ocr_start = time.time()
+        ocr_path = f"{STORAGE_BASE}/processed/{document_id}_ocr.pdf"
+        ensure_text_layer(orig_path, ocr_path)
+        timings['ocr_ms'] = int((time.time() - ocr_start) * 1000)
+        
+        # Detect BOM regions
+        detect_start = time.time()
+        detections = detect_bom_regions(ocr_path)
+        timings['detection_ms'] = int((time.time() - detect_start) * 1000)
+        
+        # Get page count
+        from PyPDF2 import PdfReader
+        reader = PdfReader(ocr_path)
+        page_count = len(reader.pages)
+        
+        # Store in database
+        doc = Document(
+            id=document_id,
+            original_filename=safe_filename,
+            file_path=orig_path,
+            ocr_file_path=ocr_path,
+            file_size=file_size,
+            page_count=page_count
+        )
+        db.session.add(doc)
+        
+        # Store detections
+        for detection in detections:
+            det = Detection(
+                document_id=document_id,
+                page=detection['page'],
+                bbox_x0=detection['bbox'][0],
+                bbox_y0=detection['bbox'][1],
+                bbox_x1=detection['bbox'][2],
+                bbox_y1=detection['bbox'][3],
+                headers=detection['headers'],
+                confidence=detection['confidence']
+            )
+            db.session.add(det)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'document_id': document_id,
+            'detections': detections,
+            'timings': timings,
+            'page_count': page_count
+        }), 201
+        
+    except Exception as e:
+        app.logger.error(f"Document analysis error: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Failed to analyze document',
+            'details': str(e) if app.debug else None
+        }), 500
+
+
+@v1_api.route('/documents/<document_id>', methods=['GET'])
+@require_login
+def get_document(document_id):
+    """
+    Get document metadata and last detections.
+    """
+    doc = Document.query.get(document_id)
+    
+    if not doc:
+        return jsonify({'error': 'Document not found'}), 404
+    
+    # Get detections
+    detections = []
+    for det in doc.detections:
+        detections.append({
+            'id': det.id,
+            'page': det.page,
+            'bbox': [det.bbox_x0, det.bbox_y0, det.bbox_x1, det.bbox_y1],
+            'headers': det.headers,
+            'confidence': det.confidence,
+            'is_reviewed': det.is_reviewed,
+            'is_correct': det.is_correct
+        })
+    
+    return jsonify({
+        'document_id': doc.id,
+        'original_filename': doc.original_filename,
+        'file_size': doc.file_size,
+        'page_count': doc.page_count,
+        'created_at': doc.created_at.isoformat(),
+        'detections': detections
+    })
+
+
+@v1_api.route('/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint returning system versions.
+    """
+    versions = {}
+    
+    try:
+        # Get tesseract version
+        result = subprocess.run(['tesseract', '--version'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            if lines:
+                versions['tesseract'] = lines[0].replace('tesseract ', '').strip()
+    except:
+        versions['tesseract'] = 'unavailable'
+    
+    try:
+        # Get ocrmypdf version
+        result = subprocess.run(['ocrmypdf', '--version'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            versions['ocrmypdf'] = result.stdout.strip()
+    except:
+        versions['ocrmypdf'] = 'unavailable'
+    
+    return jsonify({
+        'ok': True,
+        'versions': versions
+    })
 
 
 @v1_api.route('/jobs/<job_id>/approve', methods=['POST'])

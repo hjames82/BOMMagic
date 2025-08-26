@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review BOM Detection - {{ document.original_filename }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .page-container {
+            position: relative;
+            margin-bottom: 2rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .page-image {
+            width: 100%;
+            max-width: 1200px;
+            position: relative;
+        }
+        
+        .page-image img {
+            width: 100%;
+            height: auto;
+        }
+        
+        .detection-overlay {
+            position: absolute;
+            border: 2px solid rgba(255, 0, 0, 0.7);
+            background: rgba(255, 0, 0, 0.1);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .detection-overlay:hover {
+            background: rgba(255, 0, 0, 0.3);
+            border-color: rgba(255, 0, 0, 1);
+        }
+        
+        .detection-overlay.correct {
+            border-color: rgba(0, 255, 0, 0.7);
+            background: rgba(0, 255, 0, 0.1);
+        }
+        
+        .detection-overlay.incorrect {
+            border-color: rgba(128, 128, 128, 0.7);
+            background: rgba(128, 128, 128, 0.1);
+        }
+        
+        .detection-info {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .confidence-badge {
+            font-size: 0.9rem;
+            padding: 0.25rem 0.5rem;
+        }
+        
+        .header-badge {
+            background: #f0f0f0;
+            padding: 0.25rem 0.5rem;
+            margin: 0.125rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">BOMMagic</a>
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/dashboard">Dashboard</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>Review BOM Detections</h2>
+        <p class="text-muted">Document: {{ document.original_filename }} ({{ document.page_count }} pages)</p>
+        
+        {% for page_num, detections in detections_by_page.items() %}
+        <div class="page-container">
+            <h4>Page {{ page_num }}</h4>
+            
+            <div class="page-image">
+                <img src="/review/{{ document.id }}/page/{{ page_num }}/image" alt="Page {{ page_num }}" id="page-{{ page_num }}-img">
+                
+                {% for detection in detections %}
+                <div class="detection-overlay {% if detection.is_reviewed %}{% if detection.is_correct %}correct{% else %}incorrect{% endif %}{% endif %}"
+                     id="detection-{{ detection.id }}"
+                     data-detection-id="{{ detection.id }}"
+                     style="left: {{ detection.bbox[0] }}px; top: {{ detection.bbox[1] }}px; width: {{ detection.bbox[2] - detection.bbox[0] }}px; height: {{ detection.bbox[3] - detection.bbox[1] }}px;">
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="detection-list mt-3">
+                {% for detection in detections %}
+                <div class="detection-info" data-detection-id="{{ detection.id }}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6>Detection #{{ loop.index }}</h6>
+                            <div class="mb-2">
+                                <span class="confidence-badge badge bg-{% if detection.confidence >= 0.85 %}success{% elif detection.confidence >= 0.70 %}warning{% else %}danger{% endif %}">
+                                    Confidence: {{ (detection.confidence * 100)|round(1) }}%
+                                </span>
+                                {% if detection.is_reviewed %}
+                                <span class="badge bg-{% if detection.is_correct %}success{% else %}secondary{% endif %}">
+                                    {% if detection.is_correct %}Marked Correct{% else %}Not a BOM{% endif %}
+                                </span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <strong>Headers detected:</strong>
+                                {% for header in detection.headers %}
+                                <span class="header-badge">{{ header }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-success mark-correct" data-detection-id="{{ detection.id }}">
+                                <i data-feather="check"></i> Mark Correct
+                            </button>
+                            <button class="btn btn-sm btn-secondary mark-incorrect" data-detection-id="{{ detection.id }}">
+                                <i data-feather="x"></i> Not a BOM
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        
+        {% if not detections_by_page %}
+        <div class="alert alert-warning">
+            No BOM regions detected in this document.
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script>
+        feather.replace();
+        
+        // Handle marking detections
+        document.querySelectorAll('.mark-correct, .mark-incorrect').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const detectionId = e.currentTarget.dataset.detectionId;
+                const isCorrect = e.currentTarget.classList.contains('mark-correct');
+                
+                try {
+                    const response = await fetch(`/review/{{ document.id }}/detection/${detectionId}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            is_correct: isCorrect,
+                            notes: ''
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        // Update UI
+                        const overlay = document.getElementById(`detection-${detectionId}`);
+                        overlay.classList.remove('correct', 'incorrect');
+                        overlay.classList.add(isCorrect ? 'correct' : 'incorrect');
+                        
+                        // Update buttons
+                        const info = document.querySelector(`.detection-info[data-detection-id="${detectionId}"]`);
+                        const badge = info.querySelector('.badge:not(.confidence-badge)');
+                        if (badge) {
+                            badge.className = `badge bg-${isCorrect ? 'success' : 'secondary'}`;
+                            badge.textContent = isCorrect ? 'Marked Correct' : 'Not a BOM';
+                        } else {
+                            const newBadge = document.createElement('span');
+                            newBadge.className = `badge bg-${isCorrect ? 'success' : 'secondary'}`;
+                            newBadge.textContent = isCorrect ? 'Marked Correct' : 'Not a BOM';
+                            info.querySelector('.mb-2').appendChild(newBadge);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error updating detection:', error);
+                    alert('Failed to update detection status');
+                }
+            });
+        });
+        
+        // Scale overlays when image loads
+        document.querySelectorAll('.page-image img').forEach(img => {
+            img.addEventListener('load', (e) => {
+                const pageNum = e.target.id.match(/page-(\d+)/)[1];
+                const imgRect = e.target.getBoundingClientRect();
+                const scale = imgRect.width / 2000;  // Assuming rendered at 2000px width
+                
+                // Scale detection overlays
+                document.querySelectorAll(`#page-${pageNum}-img ~ .detection-overlay`).forEach(overlay => {
+                    const bbox = overlay.style;
+                    // Parse and scale coordinates
+                    const left = parseFloat(bbox.left) * scale;
+                    const top = parseFloat(bbox.top) * scale;
+                    const width = parseFloat(bbox.width) * scale;
+                    const height = parseFloat(bbox.height) * scale;
+                    
+                    overlay.style.left = `${left}px`;
+                    overlay.style.top = `${top}px`;
+                    overlay.style.width = `${width}px`;
+                    overlay.style.height = `${height}px`;
+                });
+            });
+        });
+    </script>
+</body>
+</html>

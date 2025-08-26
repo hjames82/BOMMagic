@@ -1,9 +1,11 @@
-from flask import session, render_template, redirect, url_for
+from flask import session, render_template, redirect, url_for, request, jsonify
 from flask_login import current_user
 from app import app, db
 from replit_auth import require_login, make_replit_blueprint
-from models import Job, JobStatus, AccuracyMetric
+from models import Job, JobStatus, AccuracyMetric, Document, Detection
 from sqlalchemy import desc
+from datetime import datetime
+import os
 
 app.register_blueprint(make_replit_blueprint(), url_prefix="/auth")
 
@@ -77,6 +79,78 @@ def review_job(job_id):
         return redirect(url_for('job_detail', job_id=job_id))
     
     return render_template('review.html', job=job)
+
+
+@app.route('/review/<document_id>')
+@require_login
+def review_document(document_id):
+    """Review detected BOM regions."""
+    from services.page_image import render_page_png
+    
+    doc = Document.query.get_or_404(document_id)
+    
+    # Get all detections for this document
+    detections = Detection.query.filter_by(document_id=document_id).order_by(Detection.confidence.desc()).all()
+    
+    # Group detections by page
+    detections_by_page = {}
+    for det in detections:
+        if det.page not in detections_by_page:
+            detections_by_page[det.page] = []
+        detections_by_page[det.page].append({
+            'id': det.id,
+            'bbox': [det.bbox_x0, det.bbox_y0, det.bbox_x1, det.bbox_y1],
+            'headers': det.headers,
+            'confidence': det.confidence,
+            'is_reviewed': det.is_reviewed,
+            'is_correct': det.is_correct
+        })
+    
+    return render_template('review_document.html', 
+                         document=doc, 
+                         detections_by_page=detections_by_page)
+
+
+@app.route('/review/<document_id>/detection/<int:detection_id>', methods=['POST'])
+@require_login  
+def update_detection(document_id, detection_id):
+    """Update detection review status."""
+    detection = Detection.query.get_or_404(detection_id)
+    
+    # Verify detection belongs to document
+    if detection.document_id != document_id:
+        return jsonify({'error': 'Invalid detection'}), 400
+    
+    data = request.json
+    detection.is_reviewed = True
+    detection.is_correct = data.get('is_correct', False)
+    detection.review_notes = data.get('notes', '')
+    detection.reviewed_at = datetime.now()
+    
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
+@app.route('/review/<document_id>/page/<int:page>/image')
+@require_login
+def get_page_image(document_id, page):
+    """Get rendered PNG image for a page."""
+    from flask import send_file
+    from services.page_image import render_page_png
+    
+    doc = Document.query.get_or_404(document_id)
+    
+    # Use OCR'd PDF if available, otherwise original
+    pdf_path = doc.ocr_file_path if doc.ocr_file_path else doc.file_path
+    
+    # Render page to PNG
+    png_path = render_page_png(pdf_path, page)
+    
+    if png_path and os.path.exists(png_path):
+        return send_file(png_path, mimetype='image/png')
+    else:
+        return jsonify({'error': 'Failed to render page'}), 500
 
 
 @app.errorhandler(404)

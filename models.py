@@ -147,3 +147,42 @@ class ValidationRule(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class Document(db.Model):
+    __tablename__ = 'documents'
+    
+    id = db.Column(db.String, primary_key=True)
+    original_filename = db.Column(db.String, nullable=False)
+    file_path = db.Column(db.String, nullable=False)
+    ocr_file_path = db.Column(db.String, nullable=True)
+    file_size = db.Column(db.Integer, nullable=False)
+    page_count = db.Column(db.Integer, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Relationships
+    detections = db.relationship('Detection', backref='document', lazy=True)
+
+
+class Detection(db.Model):
+    __tablename__ = 'detections'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.String, db.ForeignKey('documents.id'), nullable=False)
+    page = db.Column(db.Integer, nullable=False)
+    bbox_x0 = db.Column(db.Float, nullable=False)
+    bbox_y0 = db.Column(db.Float, nullable=False)
+    bbox_x1 = db.Column(db.Float, nullable=False)
+    bbox_y1 = db.Column(db.Float, nullable=False)
+    headers = db.Column(JSON, nullable=False)  # List of detected headers
+    confidence = db.Column(db.Float, nullable=False)
+    
+    # Review fields
+    is_reviewed = db.Column(db.Boolean, default=False)
+    is_correct = db.Column(db.Boolean, nullable=True)  # True if marked correct, False if not a BOM
+    review_notes = db.Column(db.Text, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
