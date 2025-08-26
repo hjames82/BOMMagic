@@ -1,0 +1,23 @@
+Stop full-page refresh; use safe polling
+“Remove any <meta http-equiv="refresh"> and any JS that calls location.reload() on dashboard/job pages. Replace with fetch polling of /v1/jobs/<id> every 3 seconds using AbortController. Update DOM in place; do not reload. Clear the interval on page hide.”
+
+Make uploads single-fire on the client
+“On the upload form, call event.preventDefault() and disable the submit button immediately. Remove duplicate handlers (drop + change + submit). Ensure only one code path calls the upload API. Re-enable the button only after the server responds.”
+
+Add server-side idempotency (hard stop for dupes)
+“On upload, compute sha256(file). Add a UNIQUE index on documents(hash). If a document with this hash exists, return its document_id and do not create a new record. For jobs, add a UNIQUE partial index like (document_id, type) WHERE status IN ('queued','running'). When enqueueing, use an idempotency key doc:{document_id}:detect; if a queued/running job exists, return it instead of enqueuing.”
+
+Keep the MVP at detection only
+“Ensure POST /v1/analyze only runs detection and never extraction. Do not schedule extraction automatically. The job status should be only processing | completed | failed | requires_review(detection). Wire the UI buttons so extraction is hidden for now.”
+
+Return real error messages
+“In the worker, wrap each step with try/except, capture traceback.format_exc() into jobs.error_message, and set last_step. Update the job view to show last_step, exit_code, and the stderr from subprocess if non-zero. Never display None; default to ‘No message captured’ only if the string is empty.”
+
+Prevent double enqueue from the client
+“After a successful upload, the client should just navigate to the job page. Do not call /v1/analyze again from the browser. The server owns job creation.”
+
+Add quick tests to lock it down
+“Add tests:
+• test_single_upload_single_job: POST same file 3 times → exactly 1 document and 1 queued job.
+• test_no_full_page_reload: mock fetch polling and assert no navigation events.
+• test_detection_only: job finishes with status=completed and a detection payload; extraction not invoked.”

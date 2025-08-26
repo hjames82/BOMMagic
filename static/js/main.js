@@ -4,14 +4,14 @@
 
 // Global configuration
 const CONFIG = {
-    POLLING_INTERVAL: 10000, // 10 seconds
-    MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
+    POLLING_INTERVAL: 3000, // 3 seconds
+    MAX_FILE_SIZE: 25 * 1024 * 1024, // 25MB  
     ALLOWED_TYPES: ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff'],
     ALLOWED_EXTENSIONS: /\.(pdf|png|jpe?g|tiff?)$/i
 };
 
 // Global state
-let pollingTimer = null;
+let pollingController = null; // AbortController for fetch polling
 let uploadInProgress = false;
 
 /**
@@ -139,6 +139,12 @@ function handleDrop(e) {
  * Handle file upload
  */
 function handleFileUpload(file) {
+    // Prevent duplicate uploads
+    if (uploadInProgress) {
+        console.log('Upload already in progress');
+        return;
+    }
+    
     // Validate file
     const validation = validateFile(file);
     if (!validation.valid) {
@@ -147,6 +153,12 @@ function handleFileUpload(file) {
     }
     
     uploadInProgress = true;
+    
+    // Disable all upload triggers
+    const browseBtn = document.getElementById('browse-btn');
+    const fileInput = document.getElementById('file-input');
+    if (browseBtn) browseBtn.disabled = true;
+    if (fileInput) fileInput.disabled = true;
     
     // Show upload progress
     showUploadProgress();
@@ -162,42 +174,35 @@ function handleFileUpload(file) {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            return response.json().then(data => {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            });
         }
         return response.json();
     })
     .then(data => {
         if (data.job_id) {
             showAlert('Document uploaded successfully! Processing started.', 'success');
+            // Navigate to job page, do NOT call /v1/analyze
             setTimeout(() => {
-                if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-                    location.reload();
-                } else {
-                    window.location.href = '/dashboard';
-                }
-            }, 2000);
+                window.location.href = `/jobs/${data.job_id}`;
+            }, 1000);
         } else {
             throw new Error(data.error || 'Upload failed');
         }
     })
     .catch(error => {
         console.error('Upload error:', error);
-        let message = 'Upload failed';
-        
-        if (error.message.includes('HTTP 413')) {
-            message = 'File too large. Please select a file smaller than 50MB.';
-        } else if (error.message.includes('HTTP 400')) {
-            message = 'Invalid file format. Please upload PDF or image files.';
-        } else if (error.message !== 'Upload failed') {
-            message = error.message;
-        }
-        
-        showAlert(message, 'danger');
+        showAlert(error.message || 'Upload failed', 'danger');
     })
     .finally(() => {
         hideUploadProgress();
         resetFileInput();
         uploadInProgress = false;
+        
+        // Re-enable upload triggers
+        if (browseBtn) browseBtn.disabled = false;
+        if (fileInput) fileInput.disabled = false;
     });
 }
 
@@ -220,7 +225,7 @@ function validateFile(file) {
     if (file.size > CONFIG.MAX_FILE_SIZE) {
         return {
             valid: false,
-            message: 'File size must be less than 50MB'
+            message: 'File size must be less than 25MB'
         };
     }
     
@@ -287,49 +292,199 @@ function resetFileInput() {
  * Initialize job status polling
  */
 function initializeJobPolling() {
-    // Check if we're on a page that needs polling
-    const needsPolling = document.querySelector('[data-poll-status]') || 
-                        document.querySelector('.badge.bg-primary, .badge.bg-secondary');
+    // Check if we're on job detail page
+    const jobIdMatch = window.location.pathname.match(/\/jobs\/([a-f0-9-]+)/);
+    if (jobIdMatch) {
+        const jobId = jobIdMatch[1];
+        const statusBadge = document.querySelector('.badge.bg-primary, .badge.bg-secondary');
+        if (statusBadge) {
+            startJobPolling(jobId);
+        }
+        return;
+    }
     
-    if (needsPolling) {
-        startPolling();
+    // Check if we're on dashboard with processing jobs
+    const processingJobs = document.querySelectorAll('.badge.bg-primary, .badge.bg-secondary');
+    if (processingJobs.length > 0) {
+        startDashboardPolling();
     }
 }
 
 /**
- * Start polling for job updates
+ * Start polling for a specific job
  */
-function startPolling() {
-    if (pollingTimer) return;
+function startJobPolling(jobId) {
+    stopPolling(); // Stop any existing polling
     
-    pollingTimer = setInterval(() => {
-        checkForUpdates();
-    }, CONFIG.POLLING_INTERVAL);
+    // Create new AbortController
+    pollingController = new AbortController();
+    
+    const poll = async () => {
+        try {
+            const response = await fetch(`/api/jobs/${jobId}/status`, {
+                signal: pollingController.signal
+            });
+            
+            if (!response.ok) throw new Error('Failed to fetch status');
+            
+            const data = await response.json();
+            updateJobStatus(data);
+            
+            // Continue polling if still processing
+            if (data.status === 'processing' || data.status === 'pending') {
+                setTimeout(() => {
+                    if (pollingController && !pollingController.signal.aborted) {
+                        poll();
+                    }
+                }, CONFIG.POLLING_INTERVAL);
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('Polling error:', error);
+            }
+        }
+    };
+    
+    poll();
+}
+
+/**
+ * Start polling for dashboard updates
+ */
+function startDashboardPolling() {
+    stopPolling(); // Stop any existing polling
+    
+    // Get all job IDs that need polling
+    const jobRows = document.querySelectorAll('tr[data-job-id]');
+    if (jobRows.length === 0) return;
+    
+    pollingController = new AbortController();
+    
+    const poll = async () => {
+        try {
+            // Poll each job status
+            const updates = [];
+            for (const row of jobRows) {
+                const jobId = row.dataset.jobId;
+                const badge = row.querySelector('.badge');
+                if (badge && (badge.classList.contains('bg-primary') || badge.classList.contains('bg-secondary'))) {
+                    const response = await fetch(`/api/jobs/${jobId}/status`, {
+                        signal: pollingController.signal
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        updates.push({ jobId, data, row });
+                    }
+                }
+            }
+            
+            // Update UI
+            updates.forEach(({ data, row }) => {
+                updateJobRowStatus(row, data);
+            });
+            
+            // Continue polling if there are still processing jobs
+            const stillProcessing = document.querySelector('.badge.bg-primary, .badge.bg-secondary');
+            if (stillProcessing) {
+                setTimeout(() => {
+                    if (pollingController && !pollingController.signal.aborted) {
+                        poll();
+                    }
+                }, CONFIG.POLLING_INTERVAL);
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('Polling error:', error);
+            }
+        }
+    };
+    
+    poll();
 }
 
 /**
  * Stop polling
  */
 function stopPolling() {
-    if (pollingTimer) {
-        clearInterval(pollingTimer);
-        pollingTimer = null;
+    if (pollingController) {
+        pollingController.abort();
+        pollingController = null;
     }
 }
 
 /**
- * Check for job updates
+ * Update job status in UI
  */
-function checkForUpdates() {
-    const processingElements = document.querySelectorAll('.badge.bg-primary, .badge.bg-secondary');
-    
-    if (processingElements.length === 0) {
-        stopPolling();
-        return;
+function updateJobStatus(data) {
+    // Update status badge
+    const badge = document.querySelector('.badge.fs-6');
+    if (badge && data.status) {
+        badge.className = 'badge fs-6';
+        badge.textContent = getStatusLabel(data.status);
+        badge.classList.add(getStatusBadgeClass(data.status));
     }
     
-    // If we have processing jobs, reload the page
-    location.reload();
+    // Update timeline if needed
+    if (data.status === 'completed' || data.status === 'failed') {
+        // Refresh the timeline section
+        const timelineSection = document.querySelector('.status-timeline');
+        if (timelineSection) {
+            // Could update timeline items here
+            // For now, we'll reload BOM preview if completed
+            if (data.status === 'completed' && typeof loadBOMPreview === 'function') {
+                loadBOMPreview();
+            }
+        }
+    }
+}
+
+/**
+ * Update job row status in dashboard
+ */
+function updateJobRowStatus(row, data) {
+    const badge = row.querySelector('.badge');
+    if (badge && data.status) {
+        badge.className = 'badge';
+        badge.textContent = getStatusLabel(data.status);
+        badge.classList.add(getStatusBadgeClass(data.status));
+    }
+    
+    // Update confidence if available
+    const confidenceCell = row.querySelector('[data-confidence]');
+    if (confidenceCell && data.confidence_score !== undefined) {
+        confidenceCell.textContent = data.confidence_score ? 
+            `${Math.round(data.confidence_score * 100)}%` : '-';
+    }
+}
+
+/**
+ * Get status label
+ */
+function getStatusLabel(status) {
+    const labels = {
+        'completed': 'Completed',
+        'processing': 'Processing',
+        'pending': 'Pending',
+        'requires_review': 'Needs Review',
+        'failed': 'Failed',
+        'reviewed': 'Reviewed'
+    };
+    return labels[status] || status;
+}
+
+/**
+ * Get status badge class
+ */
+function getStatusBadgeClass(status) {
+    const classes = {
+        'completed': 'bg-success',
+        'processing': 'bg-primary',
+        'pending': 'bg-secondary',
+        'requires_review': 'bg-warning text-dark',
+        'failed': 'bg-danger',
+        'reviewed': 'bg-info'
+    };
+    return classes[status] || 'bg-secondary';
 }
 
 /**
@@ -583,7 +738,15 @@ window.BOMMagic = {
     stopPolling
 };
 
-// Cleanup on page unload
+// Cleanup on page unload or hide
 window.addEventListener('beforeunload', () => {
     stopPolling();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopPolling();
+    } else {
+        initializeJobPolling();
+    }
 });

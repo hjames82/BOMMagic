@@ -124,7 +124,7 @@
                             </button>
                             <input type="file" id="file-input" class="d-none" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif" multiple>
                             <div class="mt-3">
-                                <small class="text-muted">Supports PDF, PNG, JPG, TIFF (max 50MB each)</small>
+                                <small class="text-muted">Supports PDF, PNG, JPG, TIFF (max 25MB)</small>
                             </div>
                         </div>
                         
@@ -202,7 +202,7 @@
                             </thead>
                             <tbody>
                                 {% for job in jobs %}
-                                <tr>
+                                <tr data-job-id="{{ job.id }}">
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <i data-feather="file-text" class="text-muted me-2" width="16" height="16"></i>
@@ -229,6 +229,13 @@
                                             <span class="text-muted">{{ (job.confidence_score * 100)|round(1) }}%</span>
                                         {% else %}
                                             <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-muted" data-confidence>
+                                        {% if job.confidence_score %}
+                                            {{ (job.confidence_score * 100)|round(1) }}%
+                                        {% else %}
+                                            -
                                         {% endif %}
                                     </td>
                                     <td class="text-muted">
@@ -271,129 +278,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initializeUpload();
-    
-    // Auto-refresh job statuses every 10 seconds
-    setInterval(refreshJobStatuses, 10000);
-});
-
-function initializeUpload() {
-    const uploadZone = document.getElementById('upload-zone');
-    const fileInput = document.getElementById('file-input');
-    const browseBtn = document.getElementById('browse-btn');
-    
-    // Click to browse
-    browseBtn.addEventListener('click', () => fileInput.click());
-    uploadZone.addEventListener('click', (e) => {
-        if (e.target === uploadZone || e.target.closest('#upload-content')) {
-            fileInput.click();
-        }
-    });
-    
-    // Drag and drop
-    uploadZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadZone.classList.add('dragover');
-    });
-    
-    uploadZone.addEventListener('dragleave', () => {
-        uploadZone.classList.remove('dragover');
-    });
-    
-    uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            handleFileUpload(files[0]);
-        }
-    });
-    
-    // File input change
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileUpload(e.target.files[0]);
-        }
-    });
-}
-
-function handleFileUpload(file) {
-    // Validate file
-    const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff'];
-    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(pdf|png|jpe?g|tiff?)$/i)) {
-        showAlert('Please select a valid file type (PDF, PNG, JPG, TIFF)', 'danger');
-        return;
-    }
-    
-    if (file.size > 50 * 1024 * 1024) { // 50MB
-        showAlert('File size must be less than 50MB', 'danger');
-        return;
-    }
-    
-    // Show upload progress
-    const uploadContent = document.getElementById('upload-content');
-    const uploadProgress = document.getElementById('upload-progress');
-    uploadContent.classList.add('d-none');
-    uploadProgress.classList.remove('d-none');
-    
-    // Create form data
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    // Upload file
-    fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.job_id) {
-            showAlert('Document uploaded successfully! Processing started.', 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            throw new Error(data.error || 'Upload failed');
-        }
-    })
-    .catch(error => {
-        console.error('Upload error:', error);
-        showAlert(error.message || 'Upload failed', 'danger');
-    })
-    .finally(() => {
-        // Reset upload UI
-        uploadContent.classList.remove('d-none');
-        uploadProgress.classList.add('d-none');
-        document.getElementById('file-input').value = '';
-    });
-}
-
-function refreshJobStatuses() {
-    // Only refresh if there are processing jobs
-    const processingJobs = document.querySelectorAll('.badge.bg-primary, .badge.bg-secondary');
-    if (processingJobs.length > 0) {
-        location.reload();
-    }
-}
-
-function showAlert(message, type) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    
-    // Insert after navbar
-    const navbar = document.querySelector('.navbar');
-    navbar.insertAdjacentElement('afterend', alertDiv);
-    
-    // Auto-dismiss after 5 seconds
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.remove();
-        }
-    }, 5000);
-}
-</script>
+<!-- Dashboard scripts are now handled by main.js -->
 {% endblock %}

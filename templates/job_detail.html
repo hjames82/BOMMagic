@@ -353,10 +353,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadBOMPreview();
     {% endif %}
     
-    // Auto-refresh for processing jobs
-    {% if job.status.value in ['pending', 'processing'] %}
-        setInterval(refreshStatus, 5000); // Refresh every 5 seconds
-    {% endif %}
+    // Polling is handled by main.js initializeJobPolling()
 });
 
 function loadBOMPreview() {
@@ -453,18 +450,6 @@ function showBOMError() {
     feather.replace();
 }
 
-function refreshStatus() {
-    fetch(`/api/jobs/{{ job.id }}/status`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.status !== '{{ job.status.value }}') {
-                // Status changed, reload the page
-                location.reload();
-            }
-        })
-        .catch(error => {
-            console.error('Error refreshing status:', error);
-        });
-}
+// Refresh function removed - now handled by main.js polling
 </script>
 {% endblock %}

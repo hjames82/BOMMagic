@@ -56,6 +56,7 @@ class Job(db.Model):
     original_filename = db.Column(db.String, nullable=False)
     file_path = db.Column(db.String, nullable=False)
     file_size = db.Column(db.Integer, nullable=False)
+    file_hash = db.Column(db.String, unique=True, index=True, nullable=False)  # SHA256 hash
     
     # Processing status
     status = db.Column(db.Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
@@ -157,6 +158,7 @@ class Document(db.Model):
     file_path = db.Column(db.String, nullable=False)
     ocr_file_path = db.Column(db.String, nullable=True)
     file_size = db.Column(db.Integer, nullable=False)
+    file_hash = db.Column(db.String, unique=True, index=True, nullable=False)  # SHA256 hash
     page_count = db.Column(db.Integer, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.now)

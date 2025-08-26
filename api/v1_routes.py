@@ -8,6 +8,8 @@ from flask_login import current_user
 from werkzeug.utils import secure_filename
 from redis import Redis
 from rq import Queue
+import hashlib
+import traceback
 
 from app import app, db
 from replit_auth import require_login
@@ -82,6 +84,25 @@ def upload_document():
         }), 413
     
     try:
+        # Calculate SHA256 hash for idempotency
+        file_hash = hashlib.sha256()
+        file.seek(0)
+        while chunk := file.read(8192):
+            file_hash.update(chunk)
+        file.seek(0)
+        hash_hex = file_hash.hexdigest()
+        
+        # Check if this file was already uploaded
+        existing_job = Job.query.filter_by(file_hash=hash_hex, user_id=current_user.id).first()
+        if existing_job:
+            app.logger.info(f"Duplicate upload detected: {hash_hex}")
+            return jsonify({
+                'job_id': existing_job.id,
+                'status': existing_job.status.value,
+                'message': 'Document already uploaded',
+                'duplicate': True
+            }), 200
+        
         # Generate unique identifiers
         job_id = str(uuid.uuid4())
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -94,13 +115,14 @@ def upload_document():
         # Save file to storage
         file.save(storage_path)
         
-        # Create job record in database
+        # Create job record in database with hash
         job = Job(
             id=job_id,
             user_id=current_user.id,
             original_filename=safe_filename,
             file_path=storage_path,
             file_size=file_size,
+            file_hash=hash_hex,
             status=JobStatus.PENDING,
             created_at=datetime.now(),
             processing_metadata={
@@ -156,15 +178,19 @@ def upload_document():
         }), 201
         
     except Exception as e:
-        app.logger.error(f"Document upload error: {str(e)}", exc_info=True)
+        app.logger.error(f"Document upload error: {str(e)}\n{traceback.format_exc()}")
         
         # Clean up on failure
         if 'storage_path' in locals() and os.path.exists(storage_path):
             os.remove(storage_path)
         
+        error_msg = 'Failed to process document upload'
+        if app.debug:
+            error_msg = f"{error_msg}: {str(e)}"
+        
         return jsonify({
-            'error': 'Failed to process document upload',
-            'details': str(e) if app.debug else None
+            'error': error_msg,
+            'details': traceback.format_exc() if app.debug else None
         }), 500
 
 
@@ -304,7 +330,7 @@ def export_job_results(job_id, format):
 @require_login
 def analyze_document():
     """
-    Analyze a PDF document for BOM regions.
+    Analyze a PDF document for BOM regions (detection only, not extraction).
     """
     ensure_storage_dirs()
     
@@ -333,6 +359,36 @@ def analyze_document():
         }), 413
     
     try:
+        # Calculate SHA256 hash for idempotency  
+        file_hash = hashlib.sha256()
+        file.seek(0)
+        while chunk := file.read(8192):
+            file_hash.update(chunk)
+        file.seek(0)
+        hash_hex = file_hash.hexdigest()
+        
+        # Check if this document was already analyzed
+        existing_doc = Document.query.filter_by(file_hash=hash_hex).first()
+        if existing_doc:
+            app.logger.info(f"Duplicate analysis detected: {hash_hex}")
+            # Return existing detections
+            detections = []
+            for det in existing_doc.detections:
+                detections.append({
+                    'page': det.page,
+                    'bbox': [det.bbox_x0, det.bbox_y0, det.bbox_x1, det.bbox_y1],
+                    'headers': det.headers,
+                    'confidence': det.confidence,
+                    'scores': det.scores
+                })
+            return jsonify({
+                'document_id': existing_doc.id,
+                'detections': detections,
+                'page_count': existing_doc.page_count,
+                'duplicate': True,
+                'message': 'Document already analyzed'
+            }), 200
+        
         # Generate document ID
         document_id = str(uuid.uuid4())
         safe_filename = secure_filename(file.filename)
@@ -377,13 +433,14 @@ def analyze_document():
                 'details': str(e) if app.debug else None
             }), 400
         
-        # Store in database
+        # Store in database with hash
         doc = Document(
             id=document_id,
             original_filename=safe_filename,
             file_path=orig_path,
             ocr_file_path=ocr_path,
             file_size=file_size,
+            file_hash=hash_hex,
             page_count=page_count
         )
         db.session.add(doc)
@@ -413,10 +470,15 @@ def analyze_document():
         }), 201
         
     except Exception as e:
-        app.logger.error(f"Document analysis error: {str(e)}", exc_info=True)
+        app.logger.error(f"Document analysis error: {str(e)}\n{traceback.format_exc()}")
+        
+        error_msg = 'Failed to analyze document'
+        if app.debug:
+            error_msg = f"{error_msg}: {str(e)}"
+        
         return jsonify({
-            'error': 'Failed to analyze document',
-            'details': str(e) if app.debug else None
+            'error': error_msg,
+            'details': traceback.format_exc() if app.debug else None
         }), 500
 
 

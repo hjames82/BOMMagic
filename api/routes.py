@@ -5,6 +5,8 @@ import os
 import uuid
 import mimetypes
 from datetime import datetime
+import hashlib
+import traceback
 
 from app import app, db
 from replit_auth import require_login
@@ -18,7 +20,7 @@ import threading
 @app.route('/api/upload', methods=['POST'])
 @require_login
 def upload_document():
-    """Upload a document for BOM extraction"""
+    """Upload a document for BOM extraction with idempotency"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     
@@ -32,7 +34,37 @@ def upload_document():
     if file_ext not in allowed_extensions:
         return jsonify({'error': 'Unsupported file type. Please upload PDF or image files.'}), 400
     
+    # Check file size (25MB limit)
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    max_size = 25 * 1024 * 1024  # 25MB
+    if file_size > max_size:
+        return jsonify({
+            'error': f'File too large. Maximum size: 25MB (your file: {file_size / (1024*1024):.1f}MB)'
+        }), 413
+    
     try:
+        # Calculate SHA256 hash for idempotency
+        file_hash = hashlib.sha256()
+        file.seek(0)
+        while chunk := file.read(8192):
+            file_hash.update(chunk)
+        file.seek(0)
+        hash_hex = file_hash.hexdigest()
+        
+        # Check if this file was already uploaded
+        existing_job = Job.query.filter_by(file_hash=hash_hex, user_id=current_user.id).first()
+        if existing_job:
+            current_app.logger.info(f"Duplicate upload detected: {hash_hex}")
+            return jsonify({
+                'job_id': existing_job.id,
+                'status': existing_job.status.value,
+                'message': 'Document already uploaded',
+                'duplicate': True
+            }), 200
+        
         # Generate unique job ID and filename
         job_id = str(uuid.uuid4())
         filename = secure_filename(file.filename or '')
@@ -42,16 +74,14 @@ def upload_document():
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], safe_filename)
         file.save(file_path)
         
-        # Get file size
-        file_size = os.path.getsize(file_path)
-        
-        # Create job record
+        # Create job record with hash
         job = Job(
             id=job_id,
             user_id=current_user.id,
             original_filename=filename,
             file_path=file_path,
             file_size=file_size,
+            file_hash=hash_hex,
             status=JobStatus.PENDING
         )
         
@@ -70,8 +100,11 @@ def upload_document():
         }), 201
         
     except Exception as e:
-        current_app.logger.error(f"Upload error: {str(e)}")
-        return jsonify({'error': 'Failed to upload document'}), 500
+        current_app.logger.error(f"Upload error: {str(e)}\n{traceback.format_exc()}")
+        error_msg = 'Failed to upload document'
+        if current_app.debug:
+            error_msg += f": {str(e)}"
+        return jsonify({'error': error_msg}), 500
 
 
 @app.route('/api/jobs/<job_id>/status', methods=['GET'])

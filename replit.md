@@ -1,6 +1,13 @@
 # Overview
 
-BOMMagic is a Flask-based web application that automates the extraction of Bill of Materials (BOMs) from engineering drawings and documents. The system uses OCR, computer vision, and machine learning techniques to identify and extract structured BOM data from uploaded PDF files and images. Users can upload documents, monitor processing jobs, review extracted data for accuracy, and export results in various formats (CSV, Excel).
+BOMMagic is a Flask-based web application that automates the detection and extraction of Bill of Materials (BOMs) from engineering drawings and documents. The system uses OCR, computer vision, and machine learning techniques to identify and extract structured BOM data from uploaded PDF files and images. Users can upload documents, monitor processing jobs, review detected regions for accuracy, and export results in various formats (CSV, Excel).
+
+## Recent Updates (August 26, 2025)
+- **Upload Robustness**: Implemented SHA256-based idempotency checking to prevent duplicate uploads
+- **Safe Polling**: Replaced full-page refreshes with AbortController-based safe polling for better UX
+- **Detection-Only Mode**: The /v1/analyze endpoint now performs detection only (not extraction) for faster MVP
+- **Enhanced Error Handling**: Added traceback support in debug mode for better debugging
+- **Single-Fire Uploads**: Prevented duplicate submissions during upload processing
 
 # User Preferences
 
@@ -31,8 +38,11 @@ Preferred communication style: Simple, everyday language.
 ## Processing Architecture
 - **Asynchronous Processing**: Background worker system for handling document processing jobs
 - **Multi-step Pipeline**: Sequential processing stages with error handling and recovery
-- **Confidence Scoring**: Weighted validation system for assessing extraction quality
-- **Review Workflow**: Manual review capability for low-confidence extractions
+- **Confidence Scoring**: Weighted validation system for assessing detection quality (threshold: 0.70)
+- **Review Workflow**: Manual review capability for low-confidence detections
+- **Idempotency**: SHA256 hash-based duplicate detection prevents reprocessing same documents
+- **Safe Polling**: AbortController-based status polling without page refreshes
+- **Production Guards**: Max file size 25MB, max pages 200, confidence threshold 0.70
 
 ## Frontend Architecture
 - **Bootstrap 5**: Responsive UI framework with custom CSS styling
