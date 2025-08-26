@@ -1,4 +1,9 @@
-import pandas as pd
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    print("Pandas not available, export functionality will be limited")
 import os
 import tempfile
 import logging
@@ -92,7 +97,7 @@ class ExportService:
             logger.error(f"Excel export failed: {str(e)}")
             raise
     
-    def _items_to_dataframe(self, bom_items: List[Any]) -> pd.DataFrame:
+    def _items_to_dataframe(self, bom_items: List[Any]) -> Any:
         """Convert BOM items to pandas DataFrame"""
         data = []
         
@@ -115,7 +120,10 @@ class ExportService:
             
             data.append(row)
         
-        return pd.DataFrame(data)
+        if PANDAS_AVAILABLE:
+            return pd.DataFrame(data)
+        else:
+            return data
     
     def _format_column_name(self, column: str) -> str:
         """Format column name for display"""
@@ -132,7 +140,7 @@ class ExportService:
         
         return name_mapping.get(column, column.replace('_', ' ').title())
     
-    def _format_excel_worksheet(self, workbook: Any, worksheet: Any, df: pd.DataFrame) -> None:
+    def _format_excel_worksheet(self, workbook: Any, worksheet: Any, df: Any) -> None:
         """Apply formatting to Excel worksheet"""
         try:
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -185,7 +193,7 @@ class ExportService:
         except Exception as e:
             logger.warning(f"Excel formatting failed: {str(e)}")
     
-    def _add_summary_sheet(self, writer: Any, df: pd.DataFrame, original_filename: str) -> None:
+    def _add_summary_sheet(self, writer: Any, df: Any, original_filename: str) -> None:
         """Add summary sheet to Excel workbook"""
         try:
             # Create summary data

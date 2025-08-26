@@ -1,9 +1,15 @@
 import logging
-import cv2
-import numpy as np
-from typing import Dict, List, Any, Tuple
 import re
 import os
+from typing import Dict, List, Any, Tuple, Union
+
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("OpenCV/NumPy not available, image-based table detection will be disabled")
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +252,7 @@ class TableDetector:
         
         return min(score, 1.0)
     
-    def _detect_horizontal_lines(self, thresh_image: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    def _detect_horizontal_lines(self, thresh_image: Any) -> List[Tuple[int, int, int, int]]:
         """Detect horizontal lines in thresholded image"""
         horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
         detected_lines = cv2.morphologyEx(thresh_image, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
@@ -260,7 +266,7 @@ class TableDetector:
         
         return lines
     
-    def _detect_vertical_lines(self, thresh_image: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    def _detect_vertical_lines(self, thresh_image: Any) -> List[Tuple[int, int, int, int]]:
         """Detect vertical lines in thresholded image"""
         vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 40))
         detected_lines = cv2.morphologyEx(thresh_image, cv2.MORPH_OPEN, vertical_kernel, iterations=2)

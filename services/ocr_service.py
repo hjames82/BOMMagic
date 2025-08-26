@@ -5,9 +5,20 @@ import logging
 import io
 from typing import Dict, Any, Optional
 import PyPDF2
-from PIL import Image
-import pytesseract
-import ocrmypdf
+try:
+    from PIL import Image
+    import pytesseract
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("PIL/Pillow not available, image processing will be disabled")
+
+try:
+    import ocrmypdf
+    OCRMYPDF_AVAILABLE = True
+except ImportError:
+    OCRMYPDF_AVAILABLE = False
+    print("OCRmyPDF not available, PDF OCR will use fallback method")
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +146,10 @@ class OCRService:
             'metadata': {},
             'error': None
         }
+        
+        if not PIL_AVAILABLE:
+            result['error'] = "PIL/Pillow not available for image processing"
+            return result
         
         try:
             # Open and preprocess image

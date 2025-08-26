@@ -1,11 +1,29 @@
-import pandas as pd
-import camelot
-import pdfplumber
 import re
 import logging
-from typing import Dict, List, Any, Optional, Tuple
 import tempfile
 import os
+from typing import Dict, List, Any, Optional, Tuple, Union
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    print("Pandas not available, data processing will be limited")
+
+try:
+    import camelot
+    CAMELOT_AVAILABLE = True
+except ImportError:
+    CAMELOT_AVAILABLE = False
+    print("Camelot not available, table extraction will be limited")
+
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    print("pdfplumber not available, PDF processing will be limited")
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +225,7 @@ class DataExtractor:
         
         return extractions
     
-    def _dataframe_to_bom_structure(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _dataframe_to_bom_structure(self, df: Any) -> List[Dict[str, Any]]:
         """Convert DataFrame to standardized BOM structure"""
         if df.empty:
             return []

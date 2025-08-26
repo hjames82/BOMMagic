@@ -11,7 +11,7 @@ from replit_auth import require_login
 from models import Job, JobStatus, BOMItem, AccuracyMetric
 from services.document_processor import DocumentProcessor
 from services.export_service import ExportService
-from worker import process_document_async
+from worker import process_document_job
 import threading
 
 
@@ -28,14 +28,14 @@ def upload_document():
     
     # Validate file type
     allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'}
-    file_ext = os.path.splitext(file.filename)[1].lower()
+    file_ext = os.path.splitext(file.filename or '')[1].lower()
     if file_ext not in allowed_extensions:
         return jsonify({'error': 'Unsupported file type. Please upload PDF or image files.'}), 400
     
     try:
         # Generate unique job ID and filename
         job_id = str(uuid.uuid4())
-        filename = secure_filename(file.filename)
+        filename = secure_filename(file.filename or '')
         safe_filename = f"{job_id}_{filename}"
         
         # Save file
@@ -59,7 +59,7 @@ def upload_document():
         db.session.commit()
         
         # Start processing in background
-        thread = threading.Thread(target=process_document_async, args=(job_id,))
+        thread = threading.Thread(target=process_document_job, args=(job_id,))
         thread.daemon = True
         thread.start()
         

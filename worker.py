@@ -121,10 +121,7 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
         logger.info(f"Stage 1: OCR processing for job {job.id}")
         ocr_start = datetime.now()
         
-        ocr_results = processor.ocr_service.process_ocr(
-            job.file_path,
-            output_path=f"/tmp/ocr_{job.id}.pdf"
-        )
+        ocr_results = processor.ocr_service.process_document(job.file_path)
         
         processing_times['ocr'] = (datetime.now() - ocr_start).total_seconds()
         metadata['ocr'] = ocr_results
@@ -136,13 +133,13 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
             }
         
         # Use OCR'd PDF for further processing
-        processed_file = ocr_results['output_path']
+        processed_file = ocr_results.get('processed_file_path', job.file_path)
         
         # Stage 2: Table Detection
         logger.info(f"Stage 2: Table detection for job {job.id}")
         detect_start = datetime.now()
         
-        table_results = processor.table_detector.detect_tables(processed_file, page_number)
+        table_results = processor.table_detector.detect_tables(processed_file, ocr_results.get('text_data', {}))
         
         processing_times['table_detection'] = (datetime.now() - detect_start).total_seconds()
         metadata['table_detection'] = table_results
@@ -249,7 +246,7 @@ def export_results_job(job_id: str, format: str = 'csv') -> None:
             if format == 'csv':
                 export_service.export_to_csv(export_data, export_path)
             elif format == 'xlsx':
-                export_service.export_to_excel(export_data, export_path)
+                export_service.export_to_xlsx(export_data, export_path)
             
             # Update job with export information
             job.export_path = export_path
@@ -284,20 +281,19 @@ def _save_bom_items(job_id: str, extracted_data: list) -> None:
         
         # Save new items
         for idx, item_data in enumerate(extracted_data):
-            bom_item = BOMItem(
-                job_id=job_id,
-                item_number=item_data.get('item_number'),
-                part_number=item_data.get('part_number'),
-                description=item_data.get('description'),
-                quantity=item_data.get('quantity'),
-                unit=item_data.get('unit'),
-                material=item_data.get('material'),
-                supplier=item_data.get('supplier'),
-                cost=item_data.get('cost'),
-                confidence_score=item_data.get('confidence_score', 0.5),
-                row_index=item_data.get('row_index', idx),
-                bbox=item_data.get('bbox')
-            )
+            bom_item = BOMItem()
+            bom_item.job_id = job_id
+            bom_item.item_number = item_data.get('item_number')
+            bom_item.part_number = item_data.get('part_number')
+            bom_item.description = item_data.get('description')
+            bom_item.quantity = item_data.get('quantity')
+            bom_item.unit = item_data.get('unit')
+            bom_item.material = item_data.get('material')
+            bom_item.supplier = item_data.get('supplier')
+            bom_item.cost = item_data.get('cost')
+            bom_item.confidence_score = item_data.get('confidence_score', 0.5)
+            bom_item.row_index = item_data.get('row_index', idx)
+            bom_item.bbox = item_data.get('bbox')
             
             db.session.add(bom_item)
         
@@ -330,20 +326,19 @@ def _save_accuracy_metrics(job_id: str, results: Dict[str, Any]) -> None:
         review_items = total_items - high_confidence_items
         
         # Create accuracy metric record
-        metric = AccuracyMetric(
-            job_id=job_id,
-            overall_confidence=results['confidence_score'],
-            table_detection_confidence=table_confidence,
-            ocr_confidence=ocr_confidence,
-            data_extraction_confidence=extraction_confidence,
-            total_items_detected=total_items,
-            items_with_high_confidence=high_confidence_items,
-            items_requiring_review=review_items,
-            ocr_processing_time=processing_times.get('ocr'),
-            table_detection_time=processing_times.get('table_detection'),
-            data_extraction_time=processing_times.get('data_extraction'),
-            total_processing_time=processing_times.get('total')
-        )
+        metric = AccuracyMetric()
+        metric.job_id = job_id
+        metric.overall_confidence = results['confidence_score']
+        metric.table_detection_confidence = table_confidence
+        metric.ocr_confidence = ocr_confidence
+        metric.data_extraction_confidence = extraction_confidence
+        metric.total_items_detected = total_items
+        metric.items_with_high_confidence = high_confidence_items
+        metric.items_requiring_review = review_items
+        metric.ocr_processing_time = processing_times.get('ocr')
+        metric.table_detection_time = processing_times.get('table_detection')
+        metric.data_extraction_time = processing_times.get('data_extraction')
+        metric.total_processing_time = processing_times.get('total')
         
         db.session.add(metric)
         db.session.commit()
