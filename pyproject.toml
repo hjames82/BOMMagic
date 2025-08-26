@@ -1,0 +1,29 @@
+[project]
+name = "repl-nix-workspace"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "camelot-py>=1.0.9",
+    "flask>=3.1.2",
+    "flask-dance>=7.1.0",
+    "flask-login>=0.6.3",
+    "flask-sqlalchemy>=3.1.1",
+    "gunicorn>=23.0.0",
+    "numpy>=2.3.2",
+    "oauthlib>=3.3.1",
+    "opencv-python>=4.11.0.86",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.2",
+    "pdfplumber>=0.11.7",
+    "pillow>=11.3.0",
+    "psycopg2-binary>=2.9.10",
+    "pyjwt>=2.10.1",
+    "pymupdf>=1.26.4",
+    "pypdf2>=3.0.1",
+    "pytesseract>=0.3.13",
+    "python-multipart>=0.0.20",
+    "requests>=2.32.5",
+    "sqlalchemy>=2.0.43",
+    "werkzeug>=3.1.3",
+]

@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+
+{% block title %}Job Details - {{ job.original_filename }} - BOMMagic{% endblock %}
+
+{% block head %}
+<style>
+    .status-timeline {
+        position: relative;
+        padding-left: 30px;
+    }
+    .status-timeline::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #dee2e6;
+    }
+    .timeline-item {
+        position: relative;
+        margin-bottom: 20px;
+    }
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -25px;
+        top: 5px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #6c757d;
+    }
+    .timeline-item.completed::before {
+        background: #28a745;
+    }
+    .timeline-item.current::before {
+        background: #007bff;
+        box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+    }
+    .metrics-card {
+        border: none;
+        border-radius: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('dashboard') }}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Job Details</li>
+                </ol>
+            </nav>
+            
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h1 class="h3 mb-1">{{ job.original_filename }}</h1>
+                    <p class="text-muted mb-0">Job ID: {{ job.id }}</p>
+                </div>
+                <div class="text-end">
+                    {% if job.status.value == 'completed' %}
+                        <span class="badge bg-success fs-6">Completed</span>
+                    {% elif job.status.value == 'processing' %}
+                        <span class="badge bg-primary fs-6">Processing</span>
+                    {% elif job.status.value == 'pending' %}
+                        <span class="badge bg-secondary fs-6">Pending</span>
+                    {% elif job.status.value == 'requires_review' %}
+                        <span class="badge bg-warning text-dark fs-6">Requires Review</span>
+                    {% elif job.status.value == 'reviewed' %}
+                        <span class="badge bg-info fs-6">Reviewed</span>
+                    {% elif job.status.value == 'failed' %}
+                        <span class="badge bg-danger fs-6">Failed</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Main Content -->
+        <div class="col-lg-8">
+            <!-- Processing Status -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h5 class="card-title mb-4">
+                        <i data-feather="activity" class="me-2"></i>
+                        Processing Status
+                    </h5>
+                    
+                    <div class="status-timeline">
+                        <div class="timeline-item completed">
+                            <h6>Document Uploaded</h6>
+                            <p class="text-muted mb-0">{{ job.created_at.strftime('%m/%d/%Y %I:%M %p') }}</p>
+                        </div>
+                        
+                        <div class="timeline-item {{ 'completed' if job.started_at else '' }}">
+                            <h6>Processing Started</h6>
+                            {% if job.started_at %}
+                                <p class="text-muted mb-0">{{ job.started_at.strftime('%m/%d/%Y %I:%M %p') }}</p>
+                            {% else %}
+                                <p class="text-muted mb-0">Waiting in queue...</p>
+                            {% endif %}
+                        </div>
+                        
+                        {% if job.status.value in ['completed', 'requires_review', 'reviewed'] %}
+                        <div class="timeline-item completed">
+                            <h6>Data Extracted</h6>
+                            {% if job.confidence_score %}
+                                <p class="text-muted mb-0">
+                                    Confidence: {{ (job.confidence_score * 100)|round(1) }}%
+                                </p>
+                            {% endif %}
+                        </div>
+                        {% elif job.status.value == 'processing' %}
+                        <div class="timeline-item current">
+                            <h6>Extracting BOM Data</h6>
+                            <p class="text-muted mb-0">Processing document...</p>
+                        </div>
+                        {% endif %}
+                        
+                        {% if job.status.value == 'requires_review' %}
+                        <div class="timeline-item current">
+                            <h6>Manual Review Required</h6>
+                            <p class="text-muted mb-0">Low confidence items need review</p>
+                        </div>
+                        {% elif job.status.value in ['completed', 'reviewed'] %}
+                        <div class="timeline-item completed">
+                            <h6>Ready for Export</h6>
+                            {% if job.completed_at %}
+                                <p class="text-muted mb-0">{{ job.completed_at.strftime('%m/%d/%Y %I:%M %p') }}</p>
+                            {% endif %}
+                        </div>
+                        {% elif job.status.value == 'failed' %}
+                        <div class="timeline-item">
+                            <h6>Processing Failed</h6>
+                            <p class="text-danger mb-0">{{ job.error_message or 'Unknown error occurred' }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOM Data Preview -->
+            {% if job.status.value in ['completed', 'requires_review', 'reviewed'] %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i data-feather="grid" class="me-2"></i>
+                        Extracted BOM Data
+                    </h5>
+                    <div>
+                        {% if job.status.value == 'requires_review' %}
+                            <a href="{{ url_for('review_job', job_id=job.id) }}" class="btn btn-warning btn-sm">
+                                <i data-feather="edit" class="me-1"></i>
+                                Review & Correct
+                            </a>
+                        {% endif %}
+                        {% if job.status.value in ['completed', 'reviewed'] %}
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="/api/jobs/{{ job.id }}/export/csv" class="btn btn-outline-success">
+                                    <i data-feather="download" class="me-1"></i>
+                                    CSV
+                                </a>
+                                <a href="/api/jobs/{{ job.id }}/export/xlsx" class="btn btn-outline-success">
+                                    <i data-feather="download" class="me-1"></i>
+                                    Excel
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="bom-preview" class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="text-muted mt-2">Loading BOM data...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Error Details -->
+            {% if job.status.value == 'failed' and job.error_message %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h5 class="card-title text-danger">
+                        <i data-feather="alert-triangle" class="me-2"></i>
+                        Error Details
+                    </h5>
+                    <div class="alert alert-danger">
+                        {{ job.error_message }}
+                    </div>
+                    <p class="text-muted">
+                        If this error persists, please try uploading the document again or contact support.
+                    </p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Job Information -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h6 class="card-title">Job Information</h6>
+                    
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="small text-muted">File Size</label>
+                            <div>{{ "%.1f"|format(job.file_size / 1024 / 1024) }} MB</div>
+                        </div>
+                        
+                        <div class="col-12">
+                            <label class="small text-muted">Created</label>
+                            <div>{{ job.created_at.strftime('%m/%d/%Y %I:%M %p') }}</div>
+                        </div>
+                        
+                        {% if job.started_at %}
+                        <div class="col-12">
+                            <label class="small text-muted">Started</label>
+                            <div>{{ job.started_at.strftime('%m/%d/%Y %I:%M %p') }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if job.completed_at %}
+                        <div class="col-12">
+                            <label class="small text-muted">Completed</label>
+                            <div>{{ job.completed_at.strftime('%m/%d/%Y %I:%M %p') }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if job.confidence_score %}
+                        <div class="col-12">
+                            <label class="small text-muted">Confidence Score</label>
+                            <div>
+                                <span class="badge {{ 'bg-success' if job.confidence_score >= 0.8 else 'bg-warning text-dark' if job.confidence_score >= 0.6 else 'bg-danger' }}">
+                                    {{ (job.confidence_score * 100)|round(1) }}%
+                                </span>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accuracy Metrics -->
+            {% if metrics %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <h6 class="card-title">
+                        <i data-feather="bar-chart-2" class="me-2"></i>
+                        Processing Metrics
+                    </h6>
+                    
+                    <div class="row g-3">
+                        {% if metrics.total_items_detected %}
+                        <div class="col-6">
+                            <div class="metrics-card bg-primary text-white p-3 text-center">
+                                <div class="h5 mb-0">{{ metrics.total_items_detected }}</div>
+                                <small>Items Found</small>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if metrics.items_with_high_confidence %}
+                        <div class="col-6">
+                            <div class="metrics-card bg-success text-white p-3 text-center">
+                                <div class="h5 mb-0">{{ metrics.items_with_high_confidence }}</div>
+                                <small>High Confidence</small>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if metrics.ocr_confidence %}
+                        <div class="col-12">
+                            <label class="small text-muted">OCR Confidence</label>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar" role="progressbar" style="width: {{ (metrics.ocr_confidence * 100)|round }}%">
+                                    {{ (metrics.ocr_confidence * 100)|round }}%
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if metrics.total_processing_time %}
+                        <div class="col-12">
+                            <label class="small text-muted">Processing Time</label>
+                            <div>{{ "%.1f"|format(metrics.total_processing_time) }} seconds</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Actions</h6>
+                    
+                    <div class="d-grid gap-2">
+                        {% if job.status.value == 'requires_review' %}
+                            <a href="{{ url_for('review_job', job_id=job.id) }}" class="btn btn-warning">
+                                <i data-feather="edit" class="me-2"></i>
+                                Review BOM Data
+                            </a>
+                        {% endif %}
+                        
+                        {% if job.status.value in ['completed', 'reviewed'] %}
+                            <a href="/api/jobs/{{ job.id }}/export/xlsx" class="btn btn-success">
+                                <i data-feather="download" class="me-2"></i>
+                                Download Excel
+                            </a>
+                            <a href="/api/jobs/{{ job.id }}/export/csv" class="btn btn-outline-success">
+                                <i data-feather="download" class="me-2"></i>
+                                Download CSV
+                            </a>
+                        {% endif %}
+                        
+                        {% if job.status.value in ['pending', 'processing'] %}
+                            <button type="button" class="btn btn-outline-primary" onclick="refreshStatus()">
+                                <i data-feather="refresh-cw" class="me-2"></i>
+                                Refresh Status
+                            </button>
+                        {% endif %}
+                        
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+                            <i data-feather="arrow-left" class="me-2"></i>
+                            Back to Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load BOM data if available
+    {% if job.status.value in ['completed', 'requires_review', 'reviewed'] %}
+        loadBOMPreview();
+    {% endif %}
+    
+    // Auto-refresh for processing jobs
+    {% if job.status.value in ['pending', 'processing'] %}
+        setInterval(refreshStatus, 5000); // Refresh every 5 seconds
+    {% endif %}
+});
+
+function loadBOMPreview() {
+    fetch(`/api/jobs/{{ job.id }}/data`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.bom_data && data.bom_data.length > 0) {
+                renderBOMPreview(data.bom_data);
+            } else {
+                showEmptyBOMState();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading BOM data:', error);
+            showBOMError();
+        });
+}
+
+function renderBOMPreview(bomData) {
+    const preview = document.getElementById('bom-preview');
+    
+    let tableHTML = `
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Item</th>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Confidence</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    bomData.slice(0, 10).forEach(item => { // Show first 10 items
+        const confidence = (item.confidence_score || 0) * 100;
+        const confidenceClass = confidence >= 80 ? 'bg-success' : confidence >= 60 ? 'bg-warning text-dark' : 'bg-danger';
+        
+        tableHTML += `
+            <tr>
+                <td>${item.item_number || '-'}</td>
+                <td>${item.part_number || '-'}</td>
+                <td>${item.description || '-'}</td>
+                <td>${item.quantity || '-'}</td>
+                <td>${item.unit || '-'}</td>
+                <td>
+                    <span class="badge ${confidenceClass}">
+                        ${Math.round(confidence)}%
+                    </span>
+                </td>
+            </tr>
+        `;
+    });
+    
+    tableHTML += '</tbody></table>';
+    
+    if (bomData.length > 10) {
+        tableHTML += `
+            <div class="text-center p-3 border-top">
+                <small class="text-muted">Showing 10 of ${bomData.length} items</small>
+            </div>
+        `;
+    }
+    
+    preview.innerHTML = tableHTML;
+}
+
+function showEmptyBOMState() {
+    const preview = document.getElementById('bom-preview');
+    preview.innerHTML = `
+        <div class="text-center py-4">
+            <i data-feather="inbox" class="text-muted mb-3" width="48" height="48"></i>
+            <h6 class="text-muted">No BOM data extracted</h6>
+            <p class="text-muted">The document may not contain a recognizable BOM table.</p>
+        </div>
+    `;
+    feather.replace();
+}
+
+function showBOMError() {
+    const preview = document.getElementById('bom-preview');
+    preview.innerHTML = `
+        <div class="text-center py-4">
+            <i data-feather="alert-triangle" class="text-danger mb-3" width="48" height="48"></i>
+            <h6 class="text-danger">Failed to load BOM data</h6>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadBOMPreview()">
+                <i data-feather="refresh-cw" class="me-1"></i>
+                Try Again
+            </button>
+        </div>
+    `;
+    feather.replace();
+}
+
+function refreshStatus() {
+    fetch(`/api/jobs/{{ job.id }}/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status !== '{{ job.status.value }}') {
+                // Status changed, reload the page
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing status:', error);
+        });
+}
+</script>
+{% endblock %}

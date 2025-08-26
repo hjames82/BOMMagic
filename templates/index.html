@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}BOMMagic - Smart BOM Extraction from Engineering Drawings{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero-section bg-gradient-primary text-white py-5">
+    <div class="container">
+        <div class="row align-items-center min-vh-75">
+            <div class="col-lg-6">
+                <h1 class="display-4 fw-bold mb-4">Extract BOMs from Engineering Drawings Automatically</h1>
+                <p class="lead mb-4">
+                    Upload your scanned engineering drawings and let our AI-powered system extract Bills of Materials with high accuracy. 
+                    Save hours of manual data entry.
+                </p>
+                
+                <div class="d-flex gap-3 mb-4">
+                    <div class="feature-badge">
+                        <i data-feather="eye" class="me-2"></i>
+                        OCR Processing
+                    </div>
+                    <div class="feature-badge">
+                        <i data-feather="grid" class="me-2"></i>
+                        Table Detection
+                    </div>
+                    <div class="feature-badge">
+                        <i data-feather="check-circle" class="me-2"></i>
+                        Smart Validation
+                    </div>
+                </div>
+                
+                {% if not current_user.is_authenticated %}
+                    <a href="{{ url_for('replit_auth.login') }}" class="btn btn-light btn-lg">
+                        <i data-feather="log-in" class="me-2"></i>
+                        Get Started
+                    </a>
+                {% else %}
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-light btn-lg">
+                        <i data-feather="arrow-right" class="me-2"></i>
+                        Go to Dashboard
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="col-lg-6">
+                <div class="hero-illustration">
+                    <div class="card shadow-lg">
+                        <div class="card-body p-4">
+                            <div class="d-flex align-items-center mb-3">
+                                <i data-feather="file-text" class="text-primary me-2"></i>
+                                <h6 class="mb-0 text-dark">Sample BOM Extraction</h6>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Part No.</th>
+                                            <th>Description</th>
+                                            <th>Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>1</td>
+                                            <td>ABC-123</td>
+                                            <td>Steel Bracket</td>
+                                            <td>4</td>
+                                        </tr>
+                                        <tr>
+                                            <td>2</td>
+                                            <td>DEF-456</td>
+                                            <td>M6 Bolt</td>
+                                            <td>8</td>
+                                        </tr>
+                                        <tr>
+                                            <td>3</td>
+                                            <td>GHI-789</td>
+                                            <td>Washer</td>
+                                            <td>8</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="text-center">
+                                <span class="badge bg-success">95% Confidence</span>
+                                <span class="badge bg-info">Ready for Export</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Features Section -->
+<section class="py-5">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 mx-auto text-center mb-5">
+                <h2 class="h1 mb-3">How BOMMagic Works</h2>
+                <p class="lead text-muted">
+                    Our advanced pipeline combines OCR, machine learning, and smart validation 
+                    to extract accurate BOMs from your engineering drawings.
+                </p>
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="feature-icon bg-primary text-white rounded-circle mx-auto mb-3">
+                        <i data-feather="upload"></i>
+                    </div>
+                    <h5>Upload Document</h5>
+                    <p class="text-muted">Upload PDF or image files of your engineering drawings</p>
+                </div>
+            </div>
+            
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="feature-icon bg-success text-white rounded-circle mx-auto mb-3">
+                        <i data-feather="search"></i>
+                    </div>
+                    <h5>OCR & Detection</h5>
+                    <p class="text-muted">Extract text and detect BOM tables using advanced algorithms</p>
+                </div>
+            </div>
+            
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="feature-icon bg-warning text-white rounded-circle mx-auto mb-3">
+                        <i data-feather="check-square"></i>
+                    </div>
+                    <h5>Smart Validation</h5>
+                    <p class="text-muted">Validate data quality and flag items needing review</p>
+                </div>
+            </div>
+            
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="feature-icon bg-info text-white rounded-circle mx-auto mb-3">
+                        <i data-feather="download"></i>
+                    </div>
+                    <h5>Export Results</h5>
+                    <p class="text-muted">Download clean CSV or Excel files for immediate use</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Supported Industries -->
+<section class="py-5 bg-light">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 mx-auto text-center mb-5">
+                <h2 class="mb-3">Trusted by Industry Professionals</h2>
+                <p class="lead text-muted">
+                    BOMMagic serves engineering, construction, procurement, and estimating teams worldwide.
+                </p>
+            </div>
+        </div>
+        
+        <div class="row g-4">
+            <div class="col-md-6 col-lg-3">
+                <div class="industry-card text-center p-4">
+                    <i data-feather="tool" class="text-primary mb-3"></i>
+                    <h6>Engineering</h6>
+                    <p class="text-muted small">Mechanical, electrical, and civil engineering drawings</p>
+                </div>
+            </div>
+            
+            <div class="col-md-6 col-lg-3">
+                <div class="industry-card text-center p-4">
+                    <i data-feather="home" class="text-success mb-3"></i>
+                    <h6>Construction</h6>
+                    <p class="text-muted small">Building plans and construction specifications</p>
+                </div>
+            </div>
+            
+            <div class="col-md-6 col-lg-3">
+                <div class="industry-card text-center p-4">
+                    <i data-feather="shopping-cart" class="text-warning mb-3"></i>
+                    <h6>Procurement</h6>
+                    <p class="text-muted small">Material lists and sourcing documentation</p>
+                </div>
+            </div>
+            
+            <div class="col-md-6 col-lg-3">
+                <div class="industry-card text-center p-4">
+                    <i data-feather="calculator" class="text-info mb-3"></i>
+                    <h6>Estimating</h6>
+                    <p class="text-muted small">Cost estimation and project planning</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA Section -->
+{% if not current_user.is_authenticated %}
+<section class="py-5 bg-primary text-white">
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 mx-auto text-center">
+                <h2 class="mb-3">Ready to Transform Your BOM Extraction?</h2>
+                <p class="lead mb-4">
+                    Join thousands of professionals who trust BOMMagic for accurate, 
+                    fast BOM extraction from engineering drawings.
+                </p>
+                <a href="{{ url_for('replit_auth.login') }}" class="btn btn-light btn-lg">
+                    <i data-feather="play" class="me-2"></i>
+                    Start Extracting BOMs
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

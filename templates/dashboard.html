@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - BOMMagic{% endblock %}
+
+{% block head %}
+<style>
+    .stat-card {
+        border: none;
+        border-radius: 10px;
+        transition: transform 0.2s;
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+    }
+    .upload-zone {
+        border: 2px dashed #dee2e6;
+        border-radius: 10px;
+        transition: all 0.3s;
+        cursor: pointer;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+        border-color: #0d6efd;
+        background-color: rgba(13, 110, 253, 0.05);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Welcome Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="h3 mb-1">Welcome back, {{ user.first_name or user.email or 'User' }}!</h1>
+            <p class="text-muted">Manage your BOM extraction jobs and view processing statistics.</p>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-6 col-lg-3">
+            <div class="card stat-card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="file-text" class="text-primary" width="32" height="32"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <div class="h4 mb-0">{{ stats.total_jobs }}</div>
+                            <div class="text-muted small">Total Jobs</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 col-lg-3">
+            <div class="card stat-card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="check-circle" class="text-success" width="32" height="32"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <div class="h4 mb-0">{{ stats.completed_jobs }}</div>
+                            <div class="text-muted small">Completed</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 col-lg-3">
+            <div class="card stat-card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="clock" class="text-warning" width="32" height="32"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <div class="h4 mb-0">{{ stats.pending_jobs + stats.processing_jobs }}</div>
+                            <div class="text-muted small">In Progress</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 col-lg-3">
+            <div class="card stat-card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="target" class="text-info" width="32" height="32"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <div class="h4 mb-0">{{ stats.avg_accuracy }}%</div>
+                            <div class="text-muted small">Avg. Accuracy</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row mb-5">
+        <div class="col-lg-8">
+            <!-- Upload Zone -->
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">
+                        <i data-feather="upload" class="me-2"></i>
+                        Upload New Document
+                    </h5>
+                    
+                    <div id="upload-zone" class="upload-zone p-5 text-center">
+                        <div id="upload-content">
+                            <i data-feather="upload-cloud" class="text-muted mb-3" width="48" height="48"></i>
+                            <h6>Drag & drop your engineering drawings here</h6>
+                            <p class="text-muted mb-3">or click to browse files</p>
+                            <button type="button" class="btn btn-primary" id="browse-btn">
+                                <i data-feather="folder" class="me-2"></i>
+                                Browse Files
+                            </button>
+                            <input type="file" id="file-input" class="d-none" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif" multiple>
+                            <div class="mt-3">
+                                <small class="text-muted">Supports PDF, PNG, JPG, TIFF (max 50MB each)</small>
+                            </div>
+                        </div>
+                        
+                        <div id="upload-progress" class="d-none">
+                            <div class="spinner-border text-primary mb-3" role="status">
+                                <span class="visually-hidden">Uploading...</span>
+                            </div>
+                            <h6>Processing your document...</h6>
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <!-- Quick Stats -->
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Status Overview</h6>
+                    
+                    {% if stats.review_jobs > 0 %}
+                    <div class="alert alert-warning py-2 mb-3">
+                        <i data-feather="alert-triangle" class="me-2" width="16" height="16"></i>
+                        <strong>{{ stats.review_jobs }}</strong> job(s) need review
+                    </div>
+                    {% endif %}
+                    
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Processing</span>
+                        <span class="badge bg-primary">{{ stats.processing_jobs }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Pending</span>
+                        <span class="badge bg-secondary">{{ stats.pending_jobs }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Needs Review</span>
+                        <span class="badge bg-warning text-dark">{{ stats.review_jobs }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">Failed</span>
+                        <span class="badge bg-danger">{{ stats.failed_jobs }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Jobs -->
+    <div class="row">
+        <div class="col">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i data-feather="list" class="me-2"></i>
+                        Recent Jobs
+                    </h5>
+                    <a href="/api/jobs" class="btn btn-outline-primary btn-sm">View All</a>
+                </div>
+                <div class="card-body p-0">
+                    {% if jobs %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Document</th>
+                                    <th>Status</th>
+                                    <th>Confidence</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for job in jobs %}
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <i data-feather="file-text" class="text-muted me-2" width="16" height="16"></i>
+                                            <span class="fw-medium">{{ job.original_filename }}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if job.status.value == 'completed' %}
+                                            <span class="badge bg-success">Completed</span>
+                                        {% elif job.status.value == 'processing' %}
+                                            <span class="badge bg-primary">Processing</span>
+                                        {% elif job.status.value == 'pending' %}
+                                            <span class="badge bg-secondary">Pending</span>
+                                        {% elif job.status.value == 'requires_review' %}
+                                            <span class="badge bg-warning text-dark">Needs Review</span>
+                                        {% elif job.status.value == 'failed' %}
+                                            <span class="badge bg-danger">Failed</span>
+                                        {% else %}
+                                            <span class="badge bg-info">{{ job.status.value|title }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if job.confidence_score %}
+                                            <span class="text-muted">{{ (job.confidence_score * 100)|round(1) }}%</span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-muted">
+                                        {{ job.created_at.strftime('%m/%d/%Y %I:%M %p') }}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="{{ url_for('job_detail', job_id=job.id) }}" class="btn btn-outline-primary">
+                                                <i data-feather="eye" width="14" height="14"></i>
+                                            </a>
+                                            {% if job.status.value == 'requires_review' %}
+                                            <a href="{{ url_for('review_job', job_id=job.id) }}" class="btn btn-outline-warning">
+                                                <i data-feather="edit" width="14" height="14"></i>
+                                            </a>
+                                            {% endif %}
+                                            {% if job.status.value in ['completed', 'reviewed'] %}
+                                            <a href="/api/jobs/{{ job.id }}/export/csv" class="btn btn-outline-success">
+                                                <i data-feather="download" width="14" height="14"></i>
+                                            </a>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i data-feather="inbox" class="text-muted mb-3" width="48" height="48"></i>
+                        <h6 class="text-muted">No jobs yet</h6>
+                        <p class="text-muted">Upload your first engineering drawing to get started!</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initializeUpload();
+    
+    // Auto-refresh job statuses every 10 seconds
+    setInterval(refreshJobStatuses, 10000);
+});
+
+function initializeUpload() {
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    
+    // Click to browse
+    browseBtn.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('click', (e) => {
+        if (e.target === uploadZone || e.target.closest('#upload-content')) {
+            fileInput.click();
+        }
+    });
+    
+    // Drag and drop
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileUpload(files[0]);
+        }
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFileUpload(e.target.files[0]);
+        }
+    });
+}
+
+function handleFileUpload(file) {
+    // Validate file
+    const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff'];
+    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(pdf|png|jpe?g|tiff?)$/i)) {
+        showAlert('Please select a valid file type (PDF, PNG, JPG, TIFF)', 'danger');
+        return;
+    }
+    
+    if (file.size > 50 * 1024 * 1024) { // 50MB
+        showAlert('File size must be less than 50MB', 'danger');
+        return;
+    }
+    
+    // Show upload progress
+    const uploadContent = document.getElementById('upload-content');
+    const uploadProgress = document.getElementById('upload-progress');
+    uploadContent.classList.add('d-none');
+    uploadProgress.classList.remove('d-none');
+    
+    // Create form data
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Upload file
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.job_id) {
+            showAlert('Document uploaded successfully! Processing started.', 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            throw new Error(data.error || 'Upload failed');
+        }
+    })
+    .catch(error => {
+        console.error('Upload error:', error);
+        showAlert(error.message || 'Upload failed', 'danger');
+    })
+    .finally(() => {
+        // Reset upload UI
+        uploadContent.classList.remove('d-none');
+        uploadProgress.classList.add('d-none');
+        document.getElementById('file-input').value = '';
+    });
+}
+
+function refreshJobStatuses() {
+    // Only refresh if there are processing jobs
+    const processingJobs = document.querySelectorAll('.badge.bg-primary, .badge.bg-secondary');
+    if (processingJobs.length > 0) {
+        location.reload();
+    }
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    // Insert after navbar
+    const navbar = document.querySelector('.navbar');
+    navbar.insertAdjacentElement('afterend', alertDiv);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

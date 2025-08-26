@@ -1,0 +1,282 @@
+import os
+import subprocess
+import tempfile
+import logging
+from typing import Dict, Any, Optional
+import PyPDF2
+from PIL import Image
+import pytesseract
+
+logger = logging.getLogger(__name__)
+
+
+class OCRService:
+    """Service for OCR processing using OCRmyPDF and Tesseract"""
+    
+    def __init__(self):
+        self.temp_dir = tempfile.gettempdir()
+    
+    def process_document(self, file_path: str) -> Dict[str, Any]:
+        """
+        Process document with OCR to extract text
+        
+        Args:
+            file_path: Path to the input document
+            
+        Returns:
+            Dictionary containing OCR results and metadata
+        """
+        result = {
+            'success': False,
+            'processed_file_path': None,
+            'text_data': {},
+            'metadata': {},
+            'error': None
+        }
+        
+        try:
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            if file_ext == '.pdf':
+                return self._process_pdf(file_path)
+            elif file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.tif']:
+                return self._process_image(file_path)
+            else:
+                result['error'] = f"Unsupported file format: {file_ext}"
+                return result
+                
+        except Exception as e:
+            logger.error(f"OCR processing failed: {str(e)}")
+            result['error'] = str(e)
+            return result
+    
+    def _process_pdf(self, pdf_path: str) -> Dict[str, Any]:
+        """Process PDF file using OCRmyPDF"""
+        result = {
+            'success': False,
+            'processed_file_path': None,
+            'text_data': {},
+            'metadata': {},
+            'error': None
+        }
+        
+        try:
+            # Create output path for OCR processed PDF
+            output_path = os.path.join(
+                self.temp_dir,
+                f"ocr_{os.path.basename(pdf_path)}"
+            )
+            
+            # Check if PDF already has text
+            has_text = self._pdf_has_text(pdf_path)
+            
+            if has_text:
+                logger.info("PDF already contains text, extracting directly")
+                processed_path = pdf_path
+            else:
+                logger.info("PDF requires OCR processing")
+                # Run OCRmyPDF to add text layer
+                cmd = [
+                    'ocrmypdf',
+                    '--language', 'eng',
+                    '--output-type', 'pdf',
+                    '--optimize', '1',
+                    '--jpeg-quality', '85',
+                    '--png-quality', '85',
+                    '--max-image-mpixels', '50',
+                    pdf_path,
+                    output_path
+                ]
+                
+                process = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                
+                if process.returncode != 0:
+                    logger.error(f"OCRmyPDF failed: {process.stderr}")
+                    # Fallback to image-based OCR
+                    return self._fallback_pdf_ocr(pdf_path)
+                
+                processed_path = output_path
+            
+            # Extract text from processed PDF
+            text_data = self._extract_pdf_text(processed_path)
+            
+            result.update({
+                'success': True,
+                'processed_file_path': processed_path,
+                'text_data': text_data,
+                'metadata': {
+                    'had_text_layer': has_text,
+                    'total_pages': len(text_data.get('pages', [])),
+                    'total_characters': sum(len(page.get('text', '')) for page in text_data.get('pages', []))
+                }
+            })
+            
+        except subprocess.TimeoutExpired:
+            result['error'] = "OCR processing timed out"
+        except Exception as e:
+            logger.error(f"PDF OCR processing failed: {str(e)}")
+            result['error'] = str(e)
+        
+        return result
+    
+    def _process_image(self, image_path: str) -> Dict[str, Any]:
+        """Process image file using Tesseract OCR"""
+        result = {
+            'success': False,
+            'processed_file_path': image_path,
+            'text_data': {},
+            'metadata': {},
+            'error': None
+        }
+        
+        try:
+            # Open and preprocess image
+            image = Image.open(image_path)
+            
+            # Convert to RGB if necessary
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Extract text using Tesseract
+            text = pytesseract.image_to_string(
+                image,
+                config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,:-()[]'
+            )
+            
+            # Get additional OCR data
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            
+            # Calculate confidence scores
+            confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+            
+            result.update({
+                'success': True,
+                'text_data': {
+                    'pages': [{
+                        'page_number': 1,
+                        'text': text,
+                        'confidence': avg_confidence
+                    }],
+                    'full_text': text
+                },
+                'metadata': {
+                    'image_dimensions': image.size,
+                    'average_confidence': avg_confidence,
+                    'total_characters': len(text),
+                    'detected_words': len([w for w in data['text'] if w.strip()])
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Image OCR processing failed: {str(e)}")
+            result['error'] = str(e)
+        
+        return result
+    
+    def _pdf_has_text(self, pdf_path: str) -> bool:
+        """Check if PDF already contains text"""
+        try:
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                for page in reader.pages[:3]:  # Check first 3 pages
+                    text = page.extract_text().strip()
+                    if text and len(text) > 50:  # Has substantial text
+                        return True
+            return False
+        except Exception:
+            return False
+    
+    def _extract_pdf_text(self, pdf_path: str) -> Dict[str, Any]:
+        """Extract text from PDF file"""
+        text_data = {
+            'pages': [],
+            'full_text': ''
+        }
+        
+        try:
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                full_text = []
+                
+                for i, page in enumerate(reader.pages):
+                    page_text = page.extract_text()
+                    text_data['pages'].append({
+                        'page_number': i + 1,
+                        'text': page_text,
+                        'confidence': 95  # Assume high confidence for existing text
+                    })
+                    full_text.append(page_text)
+                
+                text_data['full_text'] = '\n'.join(full_text)
+        
+        except Exception as e:
+            logger.error(f"Text extraction failed: {str(e)}")
+        
+        return text_data
+    
+    def _fallback_pdf_ocr(self, pdf_path: str) -> Dict[str, Any]:
+        """Fallback OCR method for PDFs by converting to images"""
+        result = {
+            'success': False,
+            'processed_file_path': pdf_path,
+            'text_data': {},
+            'metadata': {},
+            'error': None
+        }
+        
+        try:
+            # Convert PDF pages to images and OCR each
+            import fitz  # PyMuPDF
+            
+            doc = fitz.open(pdf_path)
+            pages_data = []
+            full_text = []
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap()
+                img_data = pix.tobytes("ppm")
+                
+                # Create PIL image from bytes
+                image = Image.open(io.BytesIO(img_data))
+                
+                # OCR the image
+                text = pytesseract.image_to_string(image)
+                data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+                
+                confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+                avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+                
+                pages_data.append({
+                    'page_number': page_num + 1,
+                    'text': text,
+                    'confidence': avg_confidence
+                })
+                full_text.append(text)
+            
+            doc.close()
+            
+            result.update({
+                'success': True,
+                'text_data': {
+                    'pages': pages_data,
+                    'full_text': '\n'.join(full_text)
+                },
+                'metadata': {
+                    'total_pages': len(pages_data),
+                    'fallback_method': True,
+                    'average_confidence': sum(p['confidence'] for p in pages_data) / len(pages_data) if pages_data else 0
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Fallback PDF OCR failed: {str(e)}")
+            result['error'] = str(e)
+        
+        return result
