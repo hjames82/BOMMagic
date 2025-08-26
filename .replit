@@ -5,7 +5,7 @@ integrations = ["python_log_in_with_replit==1.0.0", "python_database==1.0.0", "j
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "glibcLocales", "gumbo", "harfbuzz", "jbig2dec", "lcms2", "libGL", "libGLU", "libimagequant", "libjpeg", "libjpeg_turbo", "libtiff", "libwebp", "libxcrypt", "mupdf", "openjpeg", "swig", "tcl", "tesseract", "tk", "xcbuild", "zlib"]
+packages = ["freetype", "ghostscript", "glibcLocales", "gumbo", "harfbuzz", "jbig2dec", "jbig2enc", "lcms2", "libGL", "libGLU", "libimagequant", "libjpeg", "libjpeg_turbo", "libpq", "libtiff", "libwebp", "libxcrypt", "mupdf", "ocrmypdf", "openjpeg", "pngquant", "poppler", "postgresql", "redis", "swig", "tcl", "tesseract", "tk", "unpaper", "xcbuild", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -23,13 +23,13 @@ args = "BOMMagic Server"
 name = "BOMMagic Server"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "uv add flask-sqlalchemy pytesseract opencv-python pymupdf camelot-py pdfplumber pandas openpyxl pillow pypdf2 && python main.py"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000

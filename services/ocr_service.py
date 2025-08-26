@@ -2,10 +2,12 @@ import os
 import subprocess
 import tempfile
 import logging
+import io
 from typing import Dict, Any, Optional
 import PyPDF2
 from PIL import Image
 import pytesseract
+import ocrmypdf
 
 logger = logging.getLogger(__name__)
 

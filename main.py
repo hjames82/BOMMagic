@@ -1,6 +1,7 @@
 from app import app
 import routes  # noqa: F401
 import api.routes  # noqa: F401
+import api.v1_routes  # noqa: F401
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
