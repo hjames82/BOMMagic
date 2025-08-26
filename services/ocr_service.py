@@ -7,11 +7,17 @@ from typing import Dict, Any, Optional
 import PyPDF2
 try:
     from PIL import Image
-    import pytesseract
     PIL_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PIL_AVAILABLE = False
-    print("PIL/Pillow not available, image processing will be disabled")
+    print(f"PIL/Pillow not available, image processing will be disabled: {e}")
+
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError as e:
+    PYTESSERACT_AVAILABLE = False
+    print(f"Pytesseract not available: {e}")
 
 try:
     import ocrmypdf
@@ -87,8 +93,9 @@ class OCRService:
                 logger.info("PDF already contains text, extracting directly")
                 processed_path = pdf_path
             else:
-                logger.info("PDF requires OCR processing")
+                logger.info("PDF requires OCR processing - using system OCRmyPDF")
                 # Run OCRmyPDF to add text layer
+                # OCRmyPDF is available as a system command
                 cmd = [
                     'ocrmypdf',
                     '--language', 'eng',
@@ -101,6 +108,7 @@ class OCRService:
                     output_path
                 ]
                 
+                logger.info(f"Running OCRmyPDF command: {' '.join(cmd[:2])}")
                 process = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -110,8 +118,11 @@ class OCRService:
                 
                 if process.returncode != 0:
                     logger.error(f"OCRmyPDF failed: {process.stderr}")
-                    # Fallback to image-based OCR
-                    return self._fallback_pdf_ocr(pdf_path)
+                    # Try without optimization flags for simpler processing
+                    cmd_simple = ['ocrmypdf', pdf_path, output_path]
+                    process_simple = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=300)
+                    if process_simple.returncode != 0:
+                        return self._fallback_pdf_ocr(pdf_path)
                 
                 processed_path = output_path
             
