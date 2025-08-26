@@ -65,7 +65,8 @@ class DataExtractor:
             ]
         }
     
-    def extract_bom_data(self, file_path: str, tables: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def extract_bom_data(self, file_path: str, tables: List[Dict[str, Any]], 
+                         debug_logger=None, document_id: str = None) -> Dict[str, Any]:
         """
         Extract structured BOM data from detected tables
         
@@ -93,17 +94,23 @@ class DataExtractor:
             
             # Method 1: Use Camelot for PDF tables
             if file_path.lower().endswith('.pdf'):
+                if debug_logger:
+                    debug_logger.log_step("camelot_extraction", {"file_path": file_path})
                 camelot_data = self._extract_with_camelot(file_path, tables)
                 if camelot_data:
                     all_extractions.extend(camelot_data)
             
             # Method 2: Use pdfplumber for PDF tables
             if file_path.lower().endswith('.pdf'):
+                if debug_logger:
+                    debug_logger.log_step("pdfplumber_extraction", {"file_path": file_path})
                 pdfplumber_data = self._extract_with_pdfplumber(file_path, tables)
                 if pdfplumber_data:
                     all_extractions.extend(pdfplumber_data)
             
             # Method 3: Text-based extraction for all files
+            if debug_logger:
+                debug_logger.log_step("text_extraction", {"table_count": len(tables)})
             text_data = self._extract_from_text_tables(tables)
             if text_data:
                 all_extractions.extend(text_data)
@@ -117,6 +124,16 @@ class DataExtractor:
             
             # Normalize and clean data
             normalized_data = self._normalize_bom_data(best_extraction['data'])
+            
+            # Log extraction results
+            if debug_logger and document_id:
+                for idx, table in enumerate(tables):
+                    debug_logger.log_extraction(
+                        document_id=document_id,
+                        page_index=table.get('page_number', 1),
+                        table_region=table,
+                        items_extracted=len(normalized_data) if idx == 0 else 0
+                    )
             
             result.update({
                 'success': True,

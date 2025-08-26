@@ -39,7 +39,7 @@ class TableDetector:
             r'price'
         ]
     
-    def detect_tables(self, file_path: str, text_data: Dict[str, Any]) -> Dict[str, Any]:
+    def detect_tables(self, file_path: str, text_data: Dict[str, Any], debug_logger=None) -> Dict[str, Any]:
         """
         Detect BOM tables in the document
         
@@ -61,14 +61,37 @@ class TableDetector:
             # Method 1: Text-based table detection
             text_tables = self._detect_tables_from_text(text_data)
             
+            if debug_logger:
+                debug_logger.log_step("text_table_detection", {
+                    "tables_found": len(text_tables),
+                    "file_path": file_path
+                })
+            
             # Method 2: Image-based table detection (if available)
             image_tables = []
             if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif')):
                 image_tables = self._detect_tables_from_image(file_path)
+                if debug_logger:
+                    debug_logger.log_step("image_table_detection", {
+                        "tables_found": len(image_tables),
+                        "file_path": file_path
+                    })
             
             # Combine and rank tables
             all_tables = text_tables + image_tables
             ranked_tables = self._rank_tables_by_bom_likelihood(all_tables, text_data)
+            
+            # Log detected tables with debug_logger
+            if debug_logger:
+                for idx, table in enumerate(ranked_tables):
+                    if table.get('bbox'):
+                        debug_logger.log_detection(
+                            page_index=table.get('page_number', 1),
+                            bbox=table.get('bbox'),
+                            confidence=table.get('confidence', 0),
+                            pdf_path=file_path,
+                            headers=table.get('detected_headers', [])
+                        )
             
             result.update({
                 'success': True,

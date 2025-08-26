@@ -8,6 +8,7 @@ from rq import Worker, Queue
 from app import app, db
 from models import Job, JobStatus, BOMItem, AccuracyMetric
 from services.document_processor import DocumentProcessor
+from services.debug_logger import DebugLogger
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,8 @@ def process_document_job(job_id: str, page_number: int = None) -> None:
         page_number: Specific page to process (None for full document)
     """
     with app.app_context():
+        debug_logger = DebugLogger(job_id)
+        
         try:
             # Get job from database
             job = Job.query.get(job_id)
@@ -43,30 +46,43 @@ def process_document_job(job_id: str, page_number: int = None) -> None:
             if job.status == JobStatus.PENDING:
                 job.status = JobStatus.PROCESSING
                 job.started_at = datetime.now()
+                job.last_step = "job_started"
                 db.session.commit()
             
             logger.info(f"Processing job {job_id}, page {page_number or 'all'}")
+            debug_logger.log_step("job_started", {
+                "page_number": page_number,
+                "file_path": job.file_path,
+                "file_size": job.file_size
+            })
             
             # Initialize document processor
             processor = DocumentProcessor()
             
             # Validate file
+            job.last_step = "file_validation"
+            db.session.commit()
+            debug_logger.log_step("file_validation", {"file_path": job.file_path})
+            
             is_valid, error_message = processor.validate_file(job.file_path)
             if not is_valid:
-                _handle_job_failure(job, f"File validation failed: {error_message}")
+                debug_logger.log_error("file_validation", error_message)
+                _handle_job_failure(job, f"File validation failed: {error_message}", debug_logger)
                 return
             
             # Process document with pipeline stages
-            results = process_pipeline(job, processor, page_number)
+            results = process_pipeline(job, processor, page_number, debug_logger)
             
             if not results['success']:
-                _handle_job_failure(job, results['error_message'])
+                _handle_job_failure(job, results['error_message'], debug_logger)
                 return
             
             # Store processing results
             job.confidence_score = results['confidence_score']
             job.extracted_data = results['extracted_data']
             job.processing_metadata = results['metadata']
+            job.processing_logs = debug_logger.get_logs()
+            job.debug_logs = debug_logger.to_json()
             
             # Save BOM items to database
             _save_bom_items(job_id, results['extracted_data'])
@@ -98,13 +114,16 @@ def process_document_job(job_id: str, page_number: int = None) -> None:
             
         except Exception as e:
             logger.error(f"Processing failed for job {job_id}: {str(e)}", exc_info=True)
+            debug_logger.log_error("unexpected_error", str(e), e)
+            
             with app.app_context():
                 job = Job.query.get(job_id)
                 if job:
-                    _handle_job_failure(job, f"Processing error: {str(e)}")
+                    job.debug_logs = debug_logger.to_json()
+                    _handle_job_failure(job, f"Processing error: {str(e)}", debug_logger)
 
 
-def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = None) -> Dict[str, Any]:
+def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = None, debug_logger: DebugLogger = None) -> Dict[str, Any]:
     """
     Execute the multi-stage processing pipeline
     
@@ -119,14 +138,21 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
         
         # Stage 1: OCR Processing
         logger.info(f"Stage 1: OCR processing for job {job.id}")
-        ocr_start = datetime.now()
+        job.last_step = "ocr_processing"
+        db.session.commit()
         
-        ocr_results = processor.ocr_service.process_document(job.file_path)
+        if debug_logger:
+            debug_logger.log_step("ocr_processing", {"file_path": job.file_path})
+        
+        ocr_start = datetime.now()
+        ocr_results = processor.ocr_service.process_document(job.file_path, debug_logger=debug_logger)
         
         processing_times['ocr'] = (datetime.now() - ocr_start).total_seconds()
         metadata['ocr'] = ocr_results
         
         if not ocr_results['success']:
+            if debug_logger:
+                debug_logger.log_error("ocr_processing", ocr_results.get('error_message', 'Unknown error'))
             return {
                 'success': False,
                 'error_message': f"OCR failed: {ocr_results.get('error_message', 'Unknown error')}"
@@ -137,14 +163,21 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
         
         # Stage 2: Table Detection
         logger.info(f"Stage 2: Table detection for job {job.id}")
-        detect_start = datetime.now()
+        job.last_step = "table_detection"
+        db.session.commit()
         
-        table_results = processor.table_detector.detect_tables(processed_file, ocr_results.get('text_data', {}))
+        if debug_logger:
+            debug_logger.log_step("table_detection", {"pdf_path": processed_file})
+        
+        detect_start = datetime.now()
+        table_results = processor.table_detector.detect_tables(processed_file, ocr_results.get('text_data', {}), debug_logger=debug_logger)
         
         processing_times['table_detection'] = (datetime.now() - detect_start).total_seconds()
         metadata['table_detection'] = table_results
         
         if not table_results['success']:
+            if debug_logger:
+                debug_logger.log_error("table_detection", table_results.get('error_message', 'Unknown error'))
             return {
                 'success': False,
                 'error_message': f"Table detection failed: {table_results.get('error_message')}"
@@ -152,17 +185,29 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
         
         # Stage 3: Data Extraction
         logger.info(f"Stage 3: Data extraction for job {job.id}")
-        extract_start = datetime.now()
+        job.last_step = "data_extraction"
+        db.session.commit()
         
+        if debug_logger:
+            debug_logger.log_step("data_extraction", {
+                "pdf_path": processed_file,
+                "table_count": len(table_results.get('table_regions', []))
+            })
+        
+        extract_start = datetime.now()
         extraction_results = processor.data_extractor.extract_bom_data(
             processed_file,
-            table_results.get('table_regions', [])
+            table_results.get('table_regions', []),
+            debug_logger=debug_logger,
+            document_id=job.id
         )
         
         processing_times['data_extraction'] = (datetime.now() - extract_start).total_seconds()
         metadata['data_extraction'] = extraction_results
         
         if not extraction_results['success']:
+            if debug_logger:
+                debug_logger.log_error("data_extraction", extraction_results.get('error_message', 'Unknown error'))
             return {
                 'success': False,
                 'error_message': f"Data extraction failed: {extraction_results.get('error_message')}"
@@ -170,6 +215,14 @@ def process_pipeline(job: Job, processor: DocumentProcessor, page_number: int = 
         
         # Stage 4: Validation and Confidence Scoring
         logger.info(f"Stage 4: Validation for job {job.id}")
+        job.last_step = "validation"
+        db.session.commit()
+        
+        if debug_logger:
+            debug_logger.log_step("validation", {
+                "items_count": len(extraction_results.get('extracted_data', []))
+            })
+        
         validate_start = datetime.now()
         
         validation_results = processor.validation_service.validate_bom_data(
@@ -259,15 +312,21 @@ def export_results_job(job_id: str, format: str = 'csv') -> None:
             logger.error(f"Export failed for job {job_id}: {str(e)}", exc_info=True)
 
 
-def _handle_job_failure(job: Job, error_message: str) -> None:
+def _handle_job_failure(job: Job, error_message: str, debug_logger: DebugLogger = None) -> None:
     """Handle job processing failure"""
     try:
         job.status = JobStatus.FAILED
         job.error_message = error_message
         job.completed_at = datetime.now()
+        
+        # Store debug information if available
+        if debug_logger:
+            job.stderr_logs = debug_logger.get_stderr_summary()
+            job.debug_logs = debug_logger.to_json()
+        
         db.session.commit()
         
-        logger.error(f"Job {job.id} failed: {error_message}")
+        logger.error(f"Job {job.id} failed at step '{job.last_step}': {error_message}")
         
     except Exception as e:
         logger.error(f"Failed to update job failure status: {str(e)}")

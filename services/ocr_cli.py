@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def ensure_text_layer(src_pdf: str, out_pdf: str) -> str:
+def ensure_text_layer(src_pdf: str, out_pdf: str, debug_logger=None) -> str:
     """
     Ensure PDF has searchable text layer using OCRmyPDF if needed.
     
@@ -23,7 +23,19 @@ def ensure_text_layer(src_pdf: str, out_pdf: str) -> str:
     try:
         # Check if text exists using pdftotext
         cmd_check = ['pdftotext', '-q', src_pdf, '-']
+        import time as timer
+        start = timer.time()
         result = subprocess.run(cmd_check, capture_output=True, text=True, timeout=30)
+        duration_ms = int((timer.time() - start) * 1000)
+        
+        if debug_logger:
+            debug_logger.log_subprocess(
+                cmd_check,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                exit_code=result.returncode,
+                duration_ms=duration_ms
+            )
         
         text_length = len(result.stdout.strip())
         logger.info(f"Text extraction returned {text_length} characters")
@@ -46,15 +58,31 @@ def ensure_text_layer(src_pdf: str, out_pdf: str) -> str:
             ]
             
             logger.info(f"Running OCR on {src_pdf}")
+            start = timer.time()
             result = subprocess.run(cmd_ocr, capture_output=True, text=True, timeout=300)
+            duration_ms = int((timer.time() - start) * 1000)
+            
+            if debug_logger:
+                debug_logger.log_subprocess(
+                    cmd_ocr,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    exit_code=result.returncode,
+                    duration_ms=duration_ms
+                )
             
             elapsed = time.time() - start_time
             logger.info(f"OCR completed in {elapsed:.2f}s, exit code: {result.returncode}")
             
             if result.returncode != 0:
                 logger.error(f"OCR error: {result.stderr}")
+                if debug_logger:
+                    debug_logger.log_error("ocr_failed", 
+                                          f"Exit code {result.returncode}: {result.stderr}")
                 # If OCR fails, copy original
                 shutil.copy2(src_pdf, out_pdf)
+            elif debug_logger:
+                debug_logger.log_step("ocr_success", {"output": out_pdf})
             
             return out_pdf
             

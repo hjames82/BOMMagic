@@ -743,4 +743,5 @@ def approve_job_review(job_id):
 
 
 # Register blueprint with main app
-app.register_blueprint(v1_api)
+# Blueprint is registered in routes.py
+# app.register_blueprint(v1_api)

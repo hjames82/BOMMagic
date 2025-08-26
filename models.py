@@ -66,8 +66,12 @@ class Job(db.Model):
     extracted_data = db.Column(JSON, nullable=True)  # Raw extracted BOM data
     validated_data = db.Column(JSON, nullable=True)  # Validated/corrected BOM data
     
-    # Error information
+    # Error and debug information
     error_message = db.Column(db.Text, nullable=True)
+    last_step = db.Column(db.String, nullable=True)  # Last processing step
+    exit_code = db.Column(db.Integer, nullable=True)  # Exit code from subprocess
+    stderr_logs = db.Column(db.Text, nullable=True)  # Captured stderr from subprocesses
+    debug_logs = db.Column(db.Text, nullable=True)  # Debug log entries
     
     # Export information
     export_path = db.Column(db.String, nullable=True)
@@ -79,7 +83,8 @@ class Job(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
     
     # Processing metadata
-    processing_metadata = db.Column(JSON, nullable=True)  # OCR results, table detection info, etc.
+    processing_metadata = db.Column(JSON, nullable=True)
+    processing_logs = db.Column(JSON, nullable=True)  # Detailed processing logs  # OCR results, table detection info, etc.
 
 
 class BOMItem(db.Model):

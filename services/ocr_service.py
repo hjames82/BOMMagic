@@ -35,7 +35,7 @@ class OCRService:
     def __init__(self):
         self.temp_dir = tempfile.gettempdir()
     
-    def process_document(self, file_path: str) -> Dict[str, Any]:
+    def process_document(self, file_path: str, debug_logger=None) -> Dict[str, Any]:
         """
         Process document with OCR to extract text
         
@@ -57,9 +57,9 @@ class OCRService:
             file_ext = os.path.splitext(file_path)[1].lower()
             
             if file_ext == '.pdf':
-                return self._process_pdf(file_path)
+                return self._process_pdf(file_path, debug_logger)
             elif file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.tif']:
-                return self._process_image(file_path)
+                return self._process_image(file_path, debug_logger)
             else:
                 result['error'] = f"Unsupported file format: {file_ext}"
                 return result
@@ -69,7 +69,7 @@ class OCRService:
             result['error'] = str(e)
             return result
     
-    def _process_pdf(self, pdf_path: str) -> Dict[str, Any]:
+    def _process_pdf(self, pdf_path: str, debug_logger=None) -> Dict[str, Any]:
         """Process PDF file using OCRmyPDF"""
         result = {
             'success': False,
@@ -109,20 +109,50 @@ class OCRService:
                 ]
                 
                 logger.info(f"Running OCRmyPDF command: {' '.join(cmd[:2])}")
+                import time
+                start_time = time.time()
                 process = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
                     timeout=300  # 5 minute timeout
                 )
+                duration_ms = int((time.time() - start_time) * 1000)
+                
+                # Log subprocess execution
+                if debug_logger:
+                    debug_logger.log_subprocess(
+                        cmd,
+                        stdout=process.stdout,
+                        stderr=process.stderr,
+                        exit_code=process.returncode,
+                        duration_ms=duration_ms
+                    )
                 
                 if process.returncode != 0:
                     logger.error(f"OCRmyPDF failed: {process.stderr}")
+                    if debug_logger:
+                        debug_logger.log_error("ocrmypdf_failed",
+                                              f"Exit code {process.returncode}: {process.stderr}")
                     # Try without optimization flags for simpler processing
                     cmd_simple = ['ocrmypdf', pdf_path, output_path]
+                    start_time = time.time()
                     process_simple = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=300)
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    
+                    if debug_logger:
+                        debug_logger.log_subprocess(
+                            cmd_simple,
+                            stdout=process_simple.stdout,
+                            stderr=process_simple.stderr,
+                            exit_code=process_simple.returncode,
+                            duration_ms=duration_ms
+                        )
                     if process_simple.returncode != 0:
-                        return self._fallback_pdf_ocr(pdf_path)
+                        if debug_logger:
+                            debug_logger.log_error("ocrmypdf_simple_failed",
+                                                  f"Exit code {process_simple.returncode}: {process_simple.stderr}")
+                        return self._fallback_pdf_ocr(pdf_path, debug_logger)
                 
                 processed_path = output_path
             
@@ -148,7 +178,7 @@ class OCRService:
         
         return result
     
-    def _process_image(self, image_path: str) -> Dict[str, Any]:
+    def _process_image(self, image_path: str, debug_logger=None) -> Dict[str, Any]:
         """Process image file using Tesseract OCR"""
         result = {
             'success': False,

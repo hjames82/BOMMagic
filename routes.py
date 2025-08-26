@@ -7,7 +7,17 @@ from sqlalchemy import desc
 from datetime import datetime
 import os
 
+# Import API blueprints  
+from api.v1_routes import v1_api
+from api.debug_routes import debug_bp
+
+# Register blueprints
 app.register_blueprint(make_replit_blueprint(), url_prefix="/auth")
+app.register_blueprint(v1_api)
+app.register_blueprint(debug_bp)
+
+# Import api.routes to register its routes (uses @app.route directly)
+import api.routes  # noqa: F401
 
 # Make session permanent
 @app.before_request
