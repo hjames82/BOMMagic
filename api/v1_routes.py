@@ -321,14 +321,15 @@ def analyze_document():
     if file_ext != '.pdf':
         return jsonify({'error': 'Only PDF files are supported for analysis'}), 400
     
-    # Check file size
+    # Check file size (25MB limit)
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
     
-    if file_size > MAX_FILE_SIZE:
+    max_size = 25 * 1024 * 1024  # 25MB
+    if file_size > max_size:
         return jsonify({
-            'error': f'File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.1f}MB'
+            'error': f'File too large. Maximum size: 25MB (your file: {file_size / (1024*1024):.1f}MB)'
         }), 413
     
     try:
@@ -354,10 +355,27 @@ def analyze_document():
         detections = detect_bom_regions(ocr_path)
         timings['detection_ms'] = int((time.time() - detect_start) * 1000)
         
-        # Get page count
+        # Get page count and check limits
         from PyPDF2 import PdfReader
-        reader = PdfReader(ocr_path)
-        page_count = len(reader.pages)
+        try:
+            reader = PdfReader(ocr_path)
+            page_count = len(reader.pages)
+            
+            # Check page limit
+            if page_count > 200:
+                return jsonify({
+                    'error': f'Document too large. Maximum 200 pages (your document: {page_count} pages)'
+                }), 413
+            
+            # Check if encrypted
+            if reader.is_encrypted:
+                return jsonify({'error': 'Encrypted PDFs are not supported'}), 400
+                
+        except Exception as e:
+            return jsonify({
+                'error': 'Failed to read PDF',
+                'details': str(e) if app.debug else None
+            }), 400
         
         # Store in database
         doc = Document(
@@ -380,7 +398,8 @@ def analyze_document():
                 bbox_x1=detection['bbox'][2],
                 bbox_y1=detection['bbox'][3],
                 headers=detection['headers'],
-                confidence=detection['confidence']
+                confidence=detection['confidence'],
+                scores=detection.get('scores', {})  # Include detailed scores
             )
             db.session.add(det)
         
@@ -442,29 +461,140 @@ def health_check():
     """
     versions = {}
     
-    try:
-        # Get tesseract version
-        result = subprocess.run(['tesseract', '--version'], 
-                              capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            lines = result.stdout.split('\n')
-            if lines:
-                versions['tesseract'] = lines[0].replace('tesseract ', '').strip()
-    except:
-        versions['tesseract'] = 'unavailable'
+    # System tools version checks
+    tools = [
+        ('tesseract', ['tesseract', '--version']),
+        ('ocrmypdf', ['ocrmypdf', '--version']),
+        ('pdftotext', ['pdftotext', '-v']),
+        ('pdftohtml', ['pdftohtml', '-v']),
+        ('pdftoppm', ['pdftoppm', '-v'])
+    ]
     
-    try:
-        # Get ocrmypdf version
-        result = subprocess.run(['ocrmypdf', '--version'], 
-                              capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            versions['ocrmypdf'] = result.stdout.strip()
-    except:
-        versions['ocrmypdf'] = 'unavailable'
+    for tool_name, cmd in tools:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            output = result.stdout or result.stderr
+            if output:
+                lines = output.split('\n')
+                if lines:
+                    # Extract version from first line
+                    version_line = lines[0]
+                    import re
+                    version_match = re.search(r'\d+\.\d+(?:\.\d+)?', version_line)
+                    if version_match:
+                        versions[tool_name] = version_match.group()
+                    else:
+                        versions[tool_name] = 'installed'
+            else:
+                versions[tool_name] = 'unavailable'
+        except Exception:
+            versions[tool_name] = 'unavailable'
+    
+    # Configuration info
+    config = {
+        'max_file_size_mb': 25,
+        'max_pages': 200,
+        'confidence_threshold': float(os.getenv('CONFIDENCE_THRESHOLD', '0.70'))
+    }
     
     return jsonify({
         'ok': True,
-        'versions': versions
+        'versions': versions,
+        'config': config
+    })
+
+
+@v1_api.route('/metrics/detect', methods=['GET'])
+def get_detection_metrics():
+    """
+    Get detection metrics and statistics.
+    """
+    from sqlalchemy import func
+    from datetime import datetime, timedelta
+    from models import Detection
+    
+    # Get time range parameter
+    hours = request.args.get('hours', 24, type=int)
+    since = datetime.now() - timedelta(hours=hours)
+    
+    # Query detection statistics
+    total_detections = Detection.query.filter(Detection.created_at >= since).count()
+    reviewed_detections = Detection.query.filter(
+        Detection.created_at >= since,
+        Detection.is_reviewed == True
+    ).count()
+    
+    # Confidence statistics
+    confidence_stats = db.session.query(
+        func.avg(Detection.confidence).label('avg'),
+        func.min(Detection.confidence).label('min'),
+        func.max(Detection.confidence).label('max'),
+        func.stddev(Detection.confidence).label('stddev')
+    ).filter(Detection.created_at >= since).first()
+    
+    # Score breakdowns
+    score_stats = {}
+    detections_with_scores = Detection.query.filter(
+        Detection.created_at >= since,
+        Detection.scores.isnot(None)
+    ).all()
+    
+    if detections_with_scores:
+        header_scores = [d.scores.get('header_score', 0) for d in detections_with_scores if d.scores]
+        col_scores = [d.scores.get('col_count_score', 0) for d in detections_with_scores if d.scores]
+        qty_scores = [d.scores.get('qty_numeric_score', 0) for d in detections_with_scores if d.scores]
+        
+        score_stats = {
+            'header_score': {
+                'avg': sum(header_scores) / len(header_scores) if header_scores else 0,
+                'min': min(header_scores) if header_scores else 0,
+                'max': max(header_scores) if header_scores else 0
+            },
+            'col_count_score': {
+                'avg': sum(col_scores) / len(col_scores) if col_scores else 0,
+                'min': min(col_scores) if col_scores else 0,
+                'max': max(col_scores) if col_scores else 0
+            },
+            'qty_numeric_score': {
+                'avg': sum(qty_scores) / len(qty_scores) if qty_scores else 0,
+                'min': min(qty_scores) if qty_scores else 0,
+                'max': max(qty_scores) if qty_scores else 0
+            }
+        }
+    
+    # Confidence histogram
+    histogram_bins = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    histogram = {}
+    for i in range(len(histogram_bins) - 1):
+        count = Detection.query.filter(
+            Detection.created_at >= since,
+            Detection.confidence >= histogram_bins[i],
+            Detection.confidence < histogram_bins[i + 1]
+        ).count()
+        histogram[f"{histogram_bins[i]:.1f}-{histogram_bins[i+1]:.1f}"] = count
+    
+    # Accuracy from reviewed detections
+    correct_detections = Detection.query.filter(
+        Detection.created_at >= since,
+        Detection.is_reviewed == True,
+        Detection.is_correct == True
+    ).count()
+    
+    accuracy = correct_detections / reviewed_detections if reviewed_detections > 0 else None
+    
+    return jsonify({
+        'time_range_hours': hours,
+        'total_detections': total_detections,
+        'reviewed_detections': reviewed_detections,
+        'confidence': {
+            'average': confidence_stats.avg if confidence_stats.avg else 0,
+            'min': confidence_stats.min if confidence_stats.min else 0,
+            'max': confidence_stats.max if confidence_stats.max else 0,
+            'stddev': confidence_stats.stddev if confidence_stats.stddev else 0
+        },
+        'score_breakdown': score_stats,
+        'confidence_histogram': histogram,
+        'accuracy': accuracy
     })
 
 

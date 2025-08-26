@@ -178,11 +178,30 @@ class Detection(db.Model):
     bbox_y1 = db.Column(db.Float, nullable=False)
     headers = db.Column(JSON, nullable=False)  # List of detected headers
     confidence = db.Column(db.Float, nullable=False)
+    scores = db.Column(JSON, nullable=True)  # Detailed scoring breakdown
     
     # Review fields
     is_reviewed = db.Column(db.Boolean, default=False)
     is_correct = db.Column(db.Boolean, nullable=True)  # True if marked correct, False if not a BOM
     review_notes = db.Column(db.Text, nullable=True)
+    human_verified = db.Column(db.Boolean, default=False)
+    corrected_bbox = db.Column(JSON, nullable=True)  # User-corrected bbox
     
     created_at = db.Column(db.DateTime, default=datetime.now)
     reviewed_at = db.Column(db.DateTime, nullable=True)
+
+
+class OCRCache(db.Model):
+    __tablename__ = 'ocr_cache'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    page_hash = db.Column(db.String, nullable=False, unique=True, index=True)  # SHA256 of page
+    pdf_path = db.Column(db.String, nullable=False)
+    page_index = db.Column(db.Integer, nullable=False)
+    text_content = db.Column(db.Text, nullable=True)
+    text_xml = db.Column(db.Text, nullable=True)
+    ocr_completed = db.Column(db.Boolean, default=False)
+    
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    used_count = db.Column(db.Integer, default=1)
+    last_used = db.Column(db.DateTime, default=datetime.now)

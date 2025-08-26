@@ -6,13 +6,17 @@ import re
 logger = logging.getLogger(__name__)
 
 
-def detect_bom_regions(pdf_path: str) -> List[Dict[str, Any]]:
+def detect_bom_regions(pdf_path: str, confidence_threshold: float = 0.70) -> List[Dict[str, Any]]:
     """
     Detect BOM regions in a PDF document.
     
+    Args:
+        pdf_path: Path to PDF file
+        confidence_threshold: Minimum confidence threshold (default 0.70)
+    
     Returns:
         List of candidate BOM regions sorted by confidence desc
-        Each candidate: {page, bbox[x0,y0,x1,y1], headers[], confidence}
+        Each candidate: {page, bbox[x0,y0,x1,y1], headers[], confidence, scores}
     """
     # BOM header keywords
     header_keywords = [
@@ -45,14 +49,15 @@ def detect_bom_regions(pdf_path: str) -> List[Dict[str, Any]]:
                         bbox = extract_region_bbox(lines, line_idx, col_bands)
                         
                         # Score the region
-                        confidence = score_bom_region(lines, line_idx, headers, col_bands)
+                        confidence, scores = score_bom_region(lines, line_idx, headers, col_bands)
                         
-                        if confidence >= 0.70:
+                        if confidence >= confidence_threshold:
                             candidates.append({
                                 'page': page_index,
                                 'bbox': bbox,
                                 'headers': [h['text'] for h in headers],
-                                'confidence': confidence
+                                'confidence': confidence,
+                                'scores': scores  # Include detailed scoring
                             })
             
             # Keep top 3 candidates per page
@@ -163,8 +168,8 @@ def extract_region_bbox(lines: List[List[Dict[str, Any]]], header_idx: int,
 
 
 def score_bom_region(lines: List[List[Dict[str, Any]]], header_idx: int,
-                     headers: List[Dict[str, Any]], col_bands: List[Tuple[float, float]]) -> float:
-    """Score a potential BOM region."""
+                     headers: List[Dict[str, Any]], col_bands: List[Tuple[float, float]]) -> Tuple[float, Dict[str, Any]]:
+    """Score a potential BOM region and return detailed scores."""
     # Header score: fraction of header synonyms matched
     expected_headers = ['item', 'part', 'qty', 'description']
     header_texts = [h['text'].lower() for h in headers]
@@ -208,6 +213,19 @@ def score_bom_region(lines: List[List[Dict[str, Any]]], header_idx: int,
             qty_numeric_score = numeric_count / total_count
     
     # Calculate weighted confidence
-    confidence = 0.4 * header_score + 0.3 * col_count_score + 0.3 * qty_numeric_score
+    weights = {'header': 0.4, 'col_count': 0.3, 'qty_numeric': 0.3}
+    confidence = (weights['header'] * header_score + 
+                 weights['col_count'] * col_count_score + 
+                 weights['qty_numeric'] * qty_numeric_score)
     
-    return confidence
+    # Return confidence and detailed scores
+    scores = {
+        'header_score': header_score,
+        'col_count_score': col_count_score,
+        'qty_numeric_score': qty_numeric_score,
+        'weights': weights,
+        'col_count': col_count,
+        'headers_matched': matched
+    }
+    
+    return confidence, scores

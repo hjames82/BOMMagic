@@ -1,0 +1,111 @@
+# BOM Detection Golden Dataset Manifest
+# Categories: clear_bom, tricky_bom, no_bom
+# Format: filename, category, expected_page (1-based), bbox [x0,y0,x1,y1], headers
+
+files:
+  # Clear BOMs (8)
+  - filename: "bom_standard_01.pdf"
+    category: "clear_bom"
+    expected_page: 1
+    bbox: [50, 200, 550, 500]
+    headers: ["Item", "Part Number", "Description", "Qty", "Unit"]
+    
+  - filename: "bom_standard_02.pdf"
+    category: "clear_bom"
+    expected_page: 1
+    bbox: [40, 150, 560, 450]
+    headers: ["Item", "Part No", "Description", "Quantity", "Material"]
+    
+  - filename: "bom_standard_03.pdf"
+    category: "clear_bom"
+    expected_page: 2
+    bbox: [45, 180, 555, 480]
+    headers: ["No", "P/N", "Component", "Qty", "Unit", "Price"]
+    
+  - filename: "bom_standard_04.pdf"
+    category: "clear_bom"
+    expected_page: 1
+    bbox: [60, 220, 540, 520]
+    headers: ["Item", "Part", "Description", "Quantity", "UOM"]
+    
+  - filename: "bom_standard_05.pdf"
+    category: "clear_bom"
+    expected_page: 3
+    bbox: [55, 190, 545, 490]
+    headers: ["#", "Part Number", "Name", "Qty", "Unit", "Cost"]
+    
+  - filename: "bom_standard_06.pdf"
+    category: "clear_bom"
+    expected_page: 1
+    bbox: [48, 175, 552, 475]
+    headers: ["Item No", "Part Code", "Description", "Amount", "Unit"]
+    
+  - filename: "bom_standard_07.pdf"
+    category: "clear_bom"
+    expected_page: 1
+    bbox: [52, 210, 548, 510]
+    headers: ["Line", "Part", "Component Description", "Qty", "Each"]
+    
+  - filename: "bom_standard_08.pdf"
+    category: "clear_bom"
+    expected_page: 2
+    bbox: [46, 165, 554, 465]
+    headers: ["Item", "Part Number", "Description", "Quantity", "Unit of Measure"]
+    
+  # Tricky BOMs (4)
+  - filename: "bom_tricky_01.pdf"
+    category: "tricky_bom"
+    expected_page: 4
+    bbox: [80, 300, 520, 550]
+    headers: ["Item", "Part"]  # Minimal headers
+    notes: "Minimal column headers, relies on context"
+    
+  - filename: "bom_tricky_02.pdf"
+    category: "tricky_bom"
+    expected_page: 1
+    bbox: [35, 120, 565, 380]
+    headers: ["Component", "Count"]  # Non-standard naming
+    notes: "Uses 'Component' instead of 'Part' and 'Count' instead of 'Qty'"
+    
+  - filename: "bom_tricky_03.pdf"
+    category: "tricky_bom"
+    expected_page: 6
+    bbox: [70, 250, 530, 600]
+    headers: ["Ref", "Material Code", "Specification"]
+    notes: "Engineering drawing with embedded BOM table"
+    
+  - filename: "bom_tricky_04.pdf"
+    category: "tricky_bom"
+    expected_page: 2
+    bbox: [25, 100, 575, 350]
+    headers: ["Index", "Article"]
+    notes: "Foreign language headers with partial English"
+    
+  # No BOM (3)
+  - filename: "no_bom_01.pdf"
+    category: "no_bom"
+    expected_page: null
+    bbox: null
+    headers: []
+    notes: "Invoice document with line items but not a BOM"
+    
+  - filename: "no_bom_02.pdf"
+    category: "no_bom"
+    expected_page: null
+    bbox: null
+    headers: []
+    notes: "Technical specification document without BOM"
+    
+  - filename: "no_bom_03.pdf"
+    category: "no_bom"
+    expected_page: null
+    bbox: null
+    headers: []
+    notes: "Purchase order with product list but not BOM format"
+
+# Evaluation Criteria
+evaluation:
+  iou_threshold: 0.6  # Intersection over Union threshold for bbox matching
+  confidence_threshold: 0.70  # Default confidence threshold
+  max_false_positives_on_negatives: 1  # Maximum allowed FPs on no_bom category
+  target_f1_score: 0.90  # Minimum F1 score for gate check

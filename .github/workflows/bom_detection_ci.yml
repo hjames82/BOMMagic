@@ -1,0 +1,68 @@
+name: BOM Detection CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-detection:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          tesseract-ocr \
+          poppler-utils \
+          ghostscript \
+          qpdf
+    
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Start server
+      run: |
+        python main.py &
+        sleep 10  # Wait for server to start
+    
+    - name: Run quality gate check
+      run: |
+        ./scripts/mvp_detect_check.sh
+    
+    - name: Upload evaluation reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: evaluation-reports
+        path: reports/detect/
+    
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const reportDir = 'reports/detect/';
+          const files = fs.readdirSync(reportDir);
+          const latestReport = files.filter(f => f.endsWith('.md')).sort().pop();
+          
+          if (latestReport) {
+            const content = fs.readFileSync(`${reportDir}/${latestReport}`, 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: content
+            });
+          }

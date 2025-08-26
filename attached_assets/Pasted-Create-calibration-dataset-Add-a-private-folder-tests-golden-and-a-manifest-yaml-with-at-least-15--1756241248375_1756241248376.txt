@@ -1,0 +1,51 @@
+Create calibration dataset
+“Add a private folder tests/golden/ and a manifest.yaml with at least 15 PDFs:
+• 8 with a clear BOM, 4 tricky BOMs, 3 with no BOM.
+For each file list: expected page index, approximate bbox, and header keywords.”
+
+Evaluation CLI
+“Add a script scripts/eval_detect.sh and a Python runner tools/eval_detect.py that:
+• Runs /v1/analyze on every file in tests/golden/.
+• Compares top detection vs ground truth using IoU ≥ 0.6.
+• Outputs per-file result, plus summary metrics: precision, recall, F1, average confidence.
+• Writes JSON and a Markdown report to reports/detect/ with a timestamp.”
+
+Confidence telemetry
+“Augment detections to include reasons: header_score, col_count_score, qty_numeric_score, and their weights.
+Log these to SQLite and to structured logs.
+Expose /v1/metrics/detect returning rolling averages and histograms.”
+
+Threshold calibration
+“Add a config CONFIDENCE_THRESHOLD with default 0.70.
+Add tools/plot_thresholds.py to sweep thresholds from 0.50 to 0.95 and print precision/recall/F1 so we can pick the best default.”
+
+Negative controls
+“Ensure the pipeline returns zero candidates on non-BOM docs in the golden set.
+Add an assertion in the evaluator that false positives on negatives must be ≤ 1.”
+
+OCR caching
+“On ingest compute SHA256 per page image or text layer.
+If a page hash has been OCR’d before, reuse the existing text XML and skip OCR.
+Persist cache keys in SQLite.”
+
+Review UI upgrades
+“On /review/<document_id> add:
+• Zoom and pan.
+• Toggle overlays.
+• Drag-resize bbox when marking ‘Correct’.
+• Display reasons and confidence.
+Persist the corrected bbox and set a human_verified flag.”
+
+Guards and limits
+“Enforce PDF size ≤ 25 MB and ≤ 200 pages.
+Reject encrypted PDFs.
+Return helpful errors.
+Add /v1/health to include versions of tesseract, ocrmypdf, poppler tools.”
+
+Smoke + gate
+“Add a GitHub Action or Replit task mvp-detect-check that runs the evaluator on the golden set.
+Fail if F1 < 0.90 on positives or if false positives on negatives > 1.”
+
+Docs
+“Update README with: dataset guidelines, how to run evaluation, interpreting metrics, and the current threshold.
+Add a ‘Known Limits’ section.”
